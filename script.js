@@ -38,7 +38,6 @@
     const g = new Float32Array((nx + 1) * (ny + 1));
     for (let i = 0; i < g.length; i++) g[i] = Math.random();
     return (x, y) => {
-      // 格子の外を読むと undefined→NaN が生まれ流体全体を汚染するため、サンプリング座標を必ず格子内に収める
       x = Math.max(0, Math.min(nx - 0.001, x));
       y = Math.max(0, Math.min(ny - 0.001, y));
       const xi = x | 0, yi = y | 0;
@@ -104,7 +103,7 @@
       c.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
     }
     ictx.imageSmoothingEnabled = true;
-    ictx.imageSmoothingQuality = 'high';
+    ictx.imageSmoothingQuality = 'medium';
     drawPaperTexture();
   }
 
@@ -139,7 +138,9 @@
   let wet = 0;
   function simStep() {
     w2.set(w);
-    for (let c = 0; c < 3; c++) p2[c].set(p[c]);
+    p2[0].set(p[0]);
+    p2[1].set(p[1]);
+    p2[2].set(p[2]);
     wet = 0;
 
     for (let y = 0; y < gh; y++) {
@@ -151,20 +152,62 @@
         wet++;
         const inv = 1 / wi;
 
-        const give = (j) => {
+        // Left
+        if (x > 0) {
+          const j = i - 1;
           const dw = wi - w[j];
-          if (dw <= 0) return;
-          const f = Math.min(DIFF * perm[j] * dw * (.6 + Math.random() * .8), wi * .18);
-          w2[j] += f; w2[i] -= f;
-          for (let c = 0; c < 3; c++) {
-            const fr = f * p[c][i] * inv;
-            p2[c][j] += fr; p2[c][i] -= fr;
+          if (dw > 0) {
+            const f = Math.min(DIFF * perm[j] * dw * (.6 + Math.random() * .8), wi * .18);
+            w2[j] += f; w2[i] -= f;
+            const fr = f * inv;
+            const p0i = p[0][i], p1i = p[1][i], p2i = p[2][i];
+            if (p0i > 0) { p2[0][j] += fr * p0i; p2[0][i] -= fr * p0i; }
+            if (p1i > 0) { p2[1][j] += fr * p1i; p2[1][i] -= fr * p1i; }
+            if (p2i > 0) { p2[2][j] += fr * p2i; p2[2][i] -= fr * p2i; }
           }
-        };
-        if (x > 0) give(i - 1);
-        if (x < gw - 1) give(i + 1);
-        if (y > 0) give(i - gw);
-        if (y < gh - 1) give(i + gh);
+        }
+        // Right
+        if (x < gw - 1) {
+          const j = i + 1;
+          const dw = wi - w[j];
+          if (dw > 0) {
+            const f = Math.min(DIFF * perm[j] * dw * (.6 + Math.random() * .8), wi * .18);
+            w2[j] += f; w2[i] -= f;
+            const fr = f * inv;
+            const p0i = p[0][i], p1i = p[1][i], p2i = p[2][i];
+            if (p0i > 0) { p2[0][j] += fr * p0i; p2[0][i] -= fr * p0i; }
+            if (p1i > 0) { p2[1][j] += fr * p1i; p2[1][i] -= fr * p1i; }
+            if (p2i > 0) { p2[2][j] += fr * p2i; p2[2][i] -= fr * p2i; }
+          }
+        }
+        // Top
+        if (y > 0) {
+          const j = i - gw;
+          const dw = wi - w[j];
+          if (dw > 0) {
+            const f = Math.min(DIFF * perm[j] * dw * (.6 + Math.random() * .8), wi * .18);
+            w2[j] += f; w2[i] -= f;
+            const fr = f * inv;
+            const p0i = p[0][i], p1i = p[1][i], p2i = p[2][i];
+            if (p0i > 0) { p2[0][j] += fr * p0i; p2[0][i] -= fr * p0i; }
+            if (p1i > 0) { p2[1][j] += fr * p1i; p2[1][i] -= fr * p1i; }
+            if (p2i > 0) { p2[2][j] += fr * p2i; p2[2][i] -= fr * p2i; }
+          }
+        }
+        // Bottom (修正: i + gw)
+        if (y < gh - 1) {
+          const j = i + gw;
+          const dw = wi - w[j];
+          if (dw > 0) {
+            const f = Math.min(DIFF * perm[j] * dw * (.6 + Math.random() * .8), wi * .18);
+            w2[j] += f; w2[i] -= f;
+            const fr = f * inv;
+            const p0i = p[0][i], p1i = p[1][i], p2i = p[2][i];
+            if (p0i > 0) { p2[0][j] += fr * p0i; p2[0][i] -= fr * p0i; }
+            if (p1i > 0) { p2[1][j] += fr * p1i; p2[1][i] -= fr * p1i; }
+            if (p2i > 0) { p2[2][j] += fr * p2i; p2[2][i] -= fr * p2i; }
+          }
+        }
       }
     }
 
@@ -191,24 +234,23 @@
   // 移流：濡れた墨は流れに乗る
   function advect() {
     w2.set(w);
-    for (let c = 0; c < 3; c++) p2[c].set(p[c]);
+    p2[0].set(p[0]);
+    p2[1].set(p[1]);
+    p2[2].set(p[2]);
 
     for (let y = 0; y < gh; y++) {
       const row = y * gw;
       for (let x = 0; x < gw; x++) {
         const i = row + x;
         const wi = w[i];
-        // 濡れているほど流れる。乾いた沈着(d)は動かない=痕が残る
         const g = Math.min(wi * 3.5, 1);
         if (g < .02) continue;
         const vx = (u[i] + ambU[i]) * g, vy = (v[i] + ambV[i]) * g;
-        // 万一の非有限値はその場で握りつぶす(NaNは比較を素通りして伝播するため)
         if (!Number.isFinite(vx) || !Number.isFinite(vy)) {
           u[i] = 0; v[i] = 0; continue;
         }
         if (vx * vx + vy * vy < 1e-6) continue;
 
-        // セミラグランジュ法:流れの上流から値を汲んでくる
         const sx = Math.max(0, Math.min(gw - 1.001, x - vx));
         const sy2 = Math.max(0, Math.min(gh - 1.001, y - vy));
         const x0 = sx | 0, y0 = sy2 | 0;
@@ -216,10 +258,12 @@
         const j00 = y0 * gw + x0, j10 = j00 + 1, j01 = j00 + gw, j11 = j01 + 1;
         const a00 = (1 - fx) * (1 - fy), a10 = fx * (1 - fy), a01 = (1 - fx) * fy, a11 = fx * fy;
 
-        const bl = (arr) => arr[j00] * a00 + arr[j10] * a10 + arr[j01] * a01 + arr[j11] * a11;
-        w2[i] = wi + (bl(w) - wi) * g;
+        const bl_w = w[j00] * a00 + w[j10] * a10 + w[j01] * a01 + w[j11] * a11;
+        w2[i] = wi + (bl_w - wi) * g;
         for (let c = 0; c < 3; c++) {
-          p2[c][i] = p[c][i] + (bl(p[c]) - p[c][i]) * g;
+          const pc = p[c];
+          const bl_p = pc[j00] * a00 + pc[j10] * a10 + pc[j01] * a01 + pc[j11] * a11;
+          p2[c][i] = pc[i] + (bl_p - pc[i]) * g;
         }
       }
     }
@@ -230,20 +274,26 @@
   // 描画：減法混色
   function render() {
     const px = img.data;
+    const abs0 = ABS[0], abs1 = ABS[1], abs2 = ABS[2];
+    const d0 = d[0], d1 = d[1], d2 = d[2];
+    const p0 = p[0], p1 = p[1], p2 = p[2];
+
     for (let i = 0; i < N; i++) {
-      const c0 = d[0][i] * 1.15 + p[0][i] * .55;
-      const c1 = d[1][i] * 1.15 + p[1][i] * .55;
-      const c2 = d[2][i] * 1.15 + p[2][i] * .55;
+      const c0 = d0[i] * 1.15 + p0[i] * .55;
+      const c1 = d1[i] * 1.15 + p1[i] * .55;
+      const c2 = d2[i] * 1.15 + p2[i] * .55;
       const o = i * 4;
       if (c0 + c1 + c2 < .0004 && w[i] < .01) {
         px[o] = px[o + 1] = px[o + 2] = 255;
         continue;
       }
-      const gn = grain[i], sheen = w[i] * .05; // 濡れ面のごく薄い翳り
-      for (let ch = 0; ch < 3; ch++) {
-        const absSum = c0 * ABS[0][ch] + c1 * ABS[1][ch] + c2 * ABS[2][ch];
-        px[o + ch] = 255 * Math.exp(-(absSum + sheen) * gn);
-      }
+      const gn = grain[i], sheen = w[i] * .05;
+      const absSum0 = c0 * abs0[0] + c1 * abs1[0] + c2 * abs2[0];
+      const absSum1 = c0 * abs0[1] + c1 * abs1[1] + c2 * abs2[1];
+      const absSum2 = c0 * abs0[2] + c1 * abs1[2] + c2 * abs2[2];
+      px[o] = 255 * Math.exp(-(absSum0 + sheen) * gn);
+      px[o + 1] = 255 * Math.exp(-(absSum1 + sheen) * gn);
+      px[o + 2] = 255 * Math.exp(-(absSum2 + sheen) * gn);
     }
     gctx.putImageData(img, 0, 0);
     ictx.clearRect(0, 0, W, H);
@@ -322,15 +372,13 @@
     if (!rinsing) return;
     const t = rinsing, frontRow = Math.min(gh, ((gh * t / R_SWEEP) | 0) + 2), pouring = t < R_TOTAL - 100;
 
-    // 前線より上:注水しつつ下向きの流れを与える
     for (let y = 0; y < frontRow; y++) {
       const row = y * gw;
       for (let x = 0; x < gw; x++) {
         const i = row + x;
         if (pouring && w[i] < 2.2) w[i] += .13;
-        if (v[i] < 1.4) v[i] += .13; // 下へ流れる
-        u[i] += (Math.random() - .5) * .07 + ambU[i] * .5; // わずかに蛇行
-        // 濡れた場所では沈着した墨が再び溶け出し、流れに乗る
+        if (v[i] < 1.4) v[i] += .13;
+        u[i] += (Math.random() - .5) * .07 + ambU[i] * .5;
         const dis = Math.min(w[i], 1.2) * .05;
         if (dis > 0) {
           for (let c = 0; c < 3; c++) {
@@ -340,7 +388,6 @@
         }
       }
     }
-    // 下端の排水:流れ着いた墨と水が紙の外へ抜ける
     for (let y = gh - 3; y < gh; y++) {
       const row = y * gw;
       for (let x = 0; x < gw; x++) {
@@ -349,7 +396,6 @@
         for (let c = 0; c < 3; c++) { p[c][i] *= .5; d[c][i] *= .9; }
       }
     }
-    // 終盤:水が引き、洗い残しも薄れて消える
     if (!pouring) {
       for (let i = 0; i < N; i++) {
         w[i] *= .95;
@@ -359,22 +405,26 @@
     if (++rinsing > R_TOTAL) { clearAll(); rinsing = 0; }
   }
 
-  // 入力
-  let down = false, lastX = 0, lastY = 0, lastT = 0, holdT = 0;
+  // 入力 (マルチタッチ・複数ポインタ重複防止およびキャプチャ管理)
+  let down = false, activePointerId = null, lastX = 0, lastY = 0, lastT = 0, holdT = 0;
+
   inkCv.addEventListener('pointerdown', e => {
+    if (activePointerId !== null) return;
+    activePointerId = e.pointerId;
     down = true; holdT = 0;
+    try { inkCv.setPointerCapture(e.pointerId); } catch (_) {}
     lastX = e.clientX; lastY = e.clientY; lastT = performance.now();
     drop(e.clientX, e.clientY, 1.6, 4.5);
     swirl(e.clientX, e.clientY);
   });
+
   inkCv.addEventListener('pointermove', e => {
-    if (!down) return;
+    if (!down || e.pointerId !== activePointerId) return;
     const now = performance.now();
     const dx = e.clientX - lastX, dy = e.clientY - lastY;
     const dist = Math.hypot(dx, dy);
     if (dist > CS) {
       const dt = Math.max(now - lastT, 8);
-      // 指の勢いを水流として与える(速いほど強く引きずる)
       const gain = Math.min(dist / dt * 10, 3.5);
       addVel(e.clientX, e.clientY, dx / dist * gain, dy / dist * gain, 6);
 
@@ -385,7 +435,14 @@
       lastX = e.clientX; lastY = e.clientY; lastT = now;
     }
   });
-  const up = () => down = false;
+
+  const up = e => {
+    if (e.pointerId === activePointerId) {
+      down = false;
+      activePointerId = null;
+      try { inkCv.releasePointerCapture(e.pointerId); } catch (_) {}
+    }
+  };
   addEventListener('pointerup', up);
   addEventListener('pointercancel', up);
 
