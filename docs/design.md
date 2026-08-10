@@ -12,17 +12,19 @@
 ### 1.2 構成ファイル一覧
 | ファイル名 | 役割・概要 |
 | :--- | :--- |
-| [`index.html`](file:///Users/juna1013/bin/practice/BOKUGI/index.html) | DOM構造、キャンバス（和紙・墨層）、操作UI、ES Module (`js/main.js`) 読み込み定義 |
+| [`index.html`](file:///Users/juna1013/bin/practice/BOKUGI/index.html) | DOM構造、キャンバス（和紙・墨層）、操作UI、TypeScript (`/src/main.ts`) 読み込み定義 |
 | [`style.css`](file:///Users/juna1013/bin/practice/BOKUGI/style.css) | 縦書きタイポグラフィ、伝統色パレット、二層キャンバスの乗算合成（`mix-blend-mode`） |
-| [`js/config.js`](file:///Users/juna1013/bin/practice/BOKUGI/js/config.js) | 物理パラメーター、格子定数、顔料の光学吸収係数（`ABS`）の定義 |
-| [`js/physics/Noise.js`](file:///Users/juna1013/bin/practice/BOKUGI/js/physics/Noise.js) | Value Noise 生成器および流体ノイズ演算 |
-| [`js/physics/FluidGrid.js`](file:///Users/juna1013/bin/practice/BOKUGI/js/physics/FluidGrid.js) | 物理場データ構造（`Float32Array`: 水分・速度・顔料濃度場）と格子管理 |
-| [`js/physics/FluidSolver.js`](file:///Users/juna1013/bin/practice/BOKUGI/js/physics/FluidSolver.js) | 毛細血管拡散・定着・セミラグランジュ移流ソルバー（今後の圧力演算拡張の中心） |
-| [`js/renderer/PaperRenderer.js`](file:///Users/juna1013/bin/practice/BOKUGI/js/renderer/PaperRenderer.js) | 和紙テクスチャ・繊維の静的キャンバス描画モジュール |
-| [`js/renderer/InkRenderer.js`](file:///Users/juna1013/bin/practice/BOKUGI/js/renderer/InkRenderer.js) | Lambert-Beer減法混色計算と低解像度 Offscreen Canvas 転送描画 |
-| [`js/interaction/InputController.js`](file:///Users/juna1013/bin/practice/BOKUGI/js/interaction/InputController.js) | Pointer Capture・ポインター入力・ストローク運動量付与 |
-| [`js/interaction/RinseController.js`](file:///Users/juna1013/bin/practice/BOKUGI/js/interaction/RinseController.js) | 水洗い機能の前線波・顔料再溶解アニメーション制御 |
-| [`js/main.js`](file:///Users/juna1013/bin/practice/BOKUGI/js/main.js) | アプリケーションのエントリポイント、全モジュールの初期化とメインループ (rAF) |
+| [`src/types/physics.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/types/physics.ts) | 伝統色インデックス (`ColorIndex = 0 \| 1 \| 2`)、吸光度ベクトル (`RGBColor`) 等の厳密型定義 |
+| [`src/config.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/config.ts) | 物理パラメータ、格子定数、顔料の光学吸収係数（`ABS` as const）の定義 |
+| [`src/physics/Noise.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/physics/Noise.ts) | 2D Value Noise 生成器および流体ノイズ演算関数 |
+| [`src/physics/FluidGrid.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/physics/FluidGrid.ts) | 物理場データ構造クラス（`Float32Array`: 水分・速度・顔料濃度場）と格子管理 |
+| [`src/physics/FluidSolver.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/physics/FluidSolver.ts) | 毛細血管拡散・定着・セミラグランジュ移流ソルバー（型安全な物理演算ロジック） |
+| [`src/renderer/PaperRenderer.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/renderer/PaperRenderer.ts) | 和紙テクスチャ・繊維の静的キャンバス描画クラス |
+| [`src/renderer/InkRenderer.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/renderer/InkRenderer.ts) | Lambert-Beer減法混色計算と低解像度 Offscreen Canvas 転送描画クラス |
+| [`src/interaction/InputController.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/interaction/InputController.ts) | Pointer Capture・ポインター入力・ストローク運動量付与制御クラス |
+| [`src/interaction/RinseController.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/interaction/RinseController.ts) | 水洗い機能の前線波・顔料再溶解アニメーション制御クラス |
+| [`src/main.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/main.ts) | アプリケーションのエントリポイント、全モジュールの初期化とメインループ (rAF) |
+| [`tsconfig.json`](file:///Users/juna1013/bin/practice/BOKUGI/tsconfig.json) | TypeScript 設定 (`strict: true`, `noImplicitAny: true`, `strictNullChecks: true`) |
 | [`docs/design.md`](file:///Users/juna1013/bin/practice/BOKUGI/docs/design.md) | 本設計ドキュメント |
 
 ---
