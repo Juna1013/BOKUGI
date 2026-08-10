@@ -1,0 +1,152 @@
+*{
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+canvas {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    display: block;
+}
+
+#paper {
+    z-index: 0
+}
+
+#inkLayer {
+    z-index: 1;
+    mix-blend-mode: multiply;
+    cursor: crosshair;
+}
+
+.title {
+    position: fixed;
+    top: 24px;
+    right: 22px;
+    z-index: 3;
+    writing-mode: vertical-rl;
+    font-size: 15px;
+    letter-spacing: .7em;
+    color: rgba(27, 27, 32, .55);
+    pointer-events: none;
+}
+
+.title small {
+    font-size: 9px;
+    letter-spacing: .4em;
+    color: rgba(27, 27, 32, .3);
+    margin-top: 1.2em;
+}
+
+.hint {
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    transition: opacity 1.6s ease;
+}
+
+.hint span {
+    writing-mode: vertical-rl;
+    font-size: 17px;
+    letter-spacing: .55em;
+    color: rgba(27, 27, 32, .35);
+    animation: breathe 4s ease-in-out infinite;
+}
+
+/* 色を選ぶ: 皿に出した絵の具 */
+.palette {
+    position: fixed;
+    left: 18px;
+    top: 24px;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.palette button {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    color: rgba(242, 237, 225, .92);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity .35s, transform .35s, box-shadow .35s;
+    box-shadow: 0 1px 4px rgba(27, 27, 32, .25);
+}
+
+.palette button.on {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 0 3px #f2ede1, 0 0 0 4.5px rgba(27, 27, 32, .35);
+}
+
+.palette button:focus-visible {
+    outline: 2px solid rgba(27, 27, 32, .6);
+    outline-offset: 4px;;
+}
+
+.palette .k {
+    background: radial-gradient(circle at 35% 30%, #33333a, #17171d)
+}
+
+.palette .r {
+    background: radial-gradient(circle at 35% 30%, #d95a44, #b32b20)
+}
+
+.palette .a {
+    background: radial-gradient(circle at 35% 30%, #3a6cae, #1f3f74)
+}
+
+.rinse {
+    position: fixed;
+    left: 22px;
+    bottom: 22px;
+    z-index: 3;
+    writing-mode: vertical-rl;
+    font-family: inherit;
+    font-size: 13px;
+    letter-spacing: .5em;
+    padding: 14px 9px 8px;
+    background: none;
+    border: none;
+    color: rgba(27, 27, 32, .4);
+    border-right: 1px solid rgba(27, 27, 32, .4);
+    cursor: pointer;
+    transition: color .4s;
+}
+
+.rinse:hover, .rinse:focus-visible {
+    color: rgba(27, 27, 32, .85)
+}
+
+.rinse:focus-visible {
+    outline: 1px solid rgba(27, 27, 32, .5);
+    outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .hint span {
+        animation: none;
+        opacity: .7;
+    }
+}

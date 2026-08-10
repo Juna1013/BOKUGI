@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scable=no">
+    <title>墨戯 - BOKUGI</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <canvas id="paper"></canvas>
+    <canvas id="inkLayer"></canvas>
+
+    <div class="title">墨戯</div>
+    <div class="hint" id="hint"><span>紙に触れてください</span></div>
+
+    <div class="palette" role="radiogroup" aria-label="墨の色">
+        <button class="k on" data-c="0" aria-label="墨">墨</button>
+        <button class="r" data-c="1" aria-label="朱">朱</button>
+        <button class="a" data-c="2" aria-label="藍">藍</button>
+    </div>
+
+    <button class="rinse" id="rinse" aria-label="墨で洗い流す">水で洗い流す</button>
+
+    <script src="script.js"></script>
+</body>
+</html>
