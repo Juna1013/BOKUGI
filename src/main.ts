@@ -5,6 +5,8 @@ import { PaperRenderer } from './renderer/PaperRenderer.ts';
 import { InkRenderer } from './renderer/InkRenderer.ts';
 import { InputController } from './interaction/InputController.ts';
 import { RinseController } from './interaction/RinseController.ts';
+import { CardExporter } from './export/CardExporter.ts';
+import { ShareCardController } from './export/ShareCardController.ts';
 
 (() => {
   'use strict';
@@ -51,6 +53,9 @@ import { RinseController } from './interaction/RinseController.ts';
   }
 
   setupCanvas();
+
+  const cardExporter = new CardExporter(paper, inkCv);
+  new ShareCardController(cardExporter);
 
   let resizeT: ReturnType<typeof setTimeout> | undefined;
   window.addEventListener('resize', () => {

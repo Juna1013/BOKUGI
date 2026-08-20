@@ -23,6 +23,43 @@
 
     <button class="rinse" id="rinse" aria-label="墨で洗い流す">水で洗い流す</button>
 
+    <button class="share-card-button" id="shareCardButton">作品を残す</button>
+
+    <dialog class="share-dialog" id="shareDialog" aria-labelledby="shareDialogTitle">
+        <div class="share-dialog__content">
+            <button type="button" class="share-dialog__close" id="shareDialogClose" aria-label="閉じる">×</button>
+
+            <h2 id="shareDialogTitle">作品カード</h2>
+
+            <img class="share-dialog__preview" id="cardPreview" alt="生成したカード">
+
+            <fieldset class="share-dialog__profile">
+                <legend>作家名の掲載</legend>
+
+                <label class="share-dialog__toggle">
+                    <input type="checkbox" id="showProfileToggle">
+                    <span>作者名を掲載する</span>
+                </label>
+
+                <label for="creatorName">作者名</label>
+                <input type="text" id="creatorName" maxlength="24" autocomplete="nickname"
+                    placeholder="例：墨野 花子">
+
+                <p class="share-dialog__note">
+                    掲載をONにすると、作者名がカードの右下に入ります。<br>
+                    本名でなくても構いません。名前は端末内にのみ保存されます。
+                </p>
+            </fieldset>
+
+            <div class="share-dialog__actions">
+                <button type="button" id="nativeShareButton" disabled>共有する</button>
+                <button type="button" id="downloadCardButton" disabled>PNGで保存</button>
+            </div>
+
+            <p class="share-dialog__status" id="shareStatus" aria-live="polite"></p>
+        </div>
+    </dialog>
+
     <script type="module" src="/src/main.ts"></script>
 </body>
 
