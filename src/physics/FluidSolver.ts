@@ -28,72 +28,33 @@ export class FluidSolver {
         this.wet++;
         const inv = 1 / wi;
 
-        // Left
-        if (x > 0) {
-          const j = i - 1;
+        // 4近傍への毛細管拡散。上下左右で処理は同一のため、隣接セルの
+        // 添字だけを差し替えて回す。
+        for (let n = 0; n < 4; n++) {
+          let j: number;
+          if (n === 0) { if (x <= 0) continue; j = i - 1; }
+          else if (n === 1) { if (x >= gw - 1) continue; j = i + 1; }
+          else if (n === 2) { if (y <= 0) continue; j = i - gw; }
+          else { if (y >= gh - 1) continue; j = i + gw; }
+
           const wj = w[j] ?? 0;
           const dw = wi - wj;
-          if (dw > 0) {
-            const permJ = perm[j] ?? 1;
-            const f = Math.min(DIFF * permJ * dw * (0.6 + Math.random() * 0.8), wi * 0.18);
-            if (w2[j] !== undefined) w2[j] += f;
-            if (w2[i] !== undefined) w2[i] -= f;
-            const fr = f * inv;
-            const p0i = p[0][i] ?? 0, p1i = p[1][i] ?? 0, p2i = p[2][i] ?? 0;
-            if (p0i > 0) { p2[0][j] += fr * p0i; p2[0][i] -= fr * p0i; }
-            if (p1i > 0) { p2[1][j] += fr * p1i; p2[1][i] -= fr * p1i; }
-            if (p2i > 0) { p2[2][j] += fr * p2i; p2[2][i] -= fr * p2i; }
-          }
-        }
-        // Right
-        if (x < gw - 1) {
-          const j = i + 1;
-          const wj = w[j] ?? 0;
-          const dw = wi - wj;
-          if (dw > 0) {
-            const permJ = perm[j] ?? 1;
-            const f = Math.min(DIFF * permJ * dw * (0.6 + Math.random() * 0.8), wi * 0.18);
-            if (w2[j] !== undefined) w2[j] += f;
-            if (w2[i] !== undefined) w2[i] -= f;
-            const fr = f * inv;
-            const p0i = p[0][i] ?? 0, p1i = p[1][i] ?? 0, p2i = p[2][i] ?? 0;
-            if (p0i > 0) { p2[0][j] += fr * p0i; p2[0][i] -= fr * p0i; }
-            if (p1i > 0) { p2[1][j] += fr * p1i; p2[1][i] -= fr * p1i; }
-            if (p2i > 0) { p2[2][j] += fr * p2i; p2[2][i] -= fr * p2i; }
-          }
-        }
-        // Top
-        if (y > 0) {
-          const j = i - gw;
-          const wj = w[j] ?? 0;
-          const dw = wi - wj;
-          if (dw > 0) {
-            const permJ = perm[j] ?? 1;
-            const f = Math.min(DIFF * permJ * dw * (0.6 + Math.random() * 0.8), wi * 0.18);
-            if (w2[j] !== undefined) w2[j] += f;
-            if (w2[i] !== undefined) w2[i] -= f;
-            const fr = f * inv;
-            const p0i = p[0][i] ?? 0, p1i = p[1][i] ?? 0, p2i = p[2][i] ?? 0;
-            if (p0i > 0) { p2[0][j] += fr * p0i; p2[0][i] -= fr * p0i; }
-            if (p1i > 0) { p2[1][j] += fr * p1i; p2[1][i] -= fr * p1i; }
-            if (p2i > 0) { p2[2][j] += fr * p2i; p2[2][i] -= fr * p2i; }
-          }
-        }
-        // Bottom
-        if (y < gh - 1) {
-          const j = i + gw;
-          const wj = w[j] ?? 0;
-          const dw = wi - wj;
-          if (dw > 0) {
-            const permJ = perm[j] ?? 1;
-            const f = Math.min(DIFF * permJ * dw * (0.6 + Math.random() * 0.8), wi * 0.18);
-            if (w2[j] !== undefined) w2[j] += f;
-            if (w2[i] !== undefined) w2[i] -= f;
-            const fr = f * inv;
-            const p0i = p[0][i] ?? 0, p1i = p[1][i] ?? 0, p2i = p[2][i] ?? 0;
-            if (p0i > 0) { p2[0][j] += fr * p0i; p2[0][i] -= fr * p0i; }
-            if (p1i > 0) { p2[1][j] += fr * p1i; p2[1][i] -= fr * p1i; }
-            if (p2i > 0) { p2[2][j] += fr * p2i; p2[2][i] -= fr * p2i; }
+          if (dw <= 0) continue;
+
+          const permJ = perm[j] ?? 1;
+          const f = Math.min(DIFF * permJ * dw * (0.6 + Math.random() * 0.8), wi * 0.18);
+          w2[j]! += f;
+          w2[i]! -= f;
+
+          const fr = f * inv;
+          for (let c = 0; c < 3; c++) {
+            const pc = p[c as ColorIndex];
+            const p2c = p2[c as ColorIndex];
+            const pci = pc[i] ?? 0;
+            if (pci <= 0) continue;
+            const move = fr * pci;
+            p2c[j]! += move;
+            p2c[i]! -= move;
           }
         }
       }
@@ -105,10 +66,9 @@ export class FluidSolver {
       const dry = 1 - Math.min(wi * 6, 1);
       const rate = 0.003 + 0.05 * dry * dry;
       for (let c = 0; c < 3; c++) {
-        const p2c = p2[c as 0 | 1 | 2];
-        const dc = d[c as 0 | 1 | 2];
-        const pc = p[c as 0 | 1 | 2];
-        if (!p2c || !dc || !pc) continue;
+        const p2c = p2[c as ColorIndex];
+        const dc = d[c as ColorIndex];
+        const pc = p[c as ColorIndex];
 
         const pv = p2c[i] ?? 0;
         if (pv > 0) {
@@ -120,8 +80,8 @@ export class FluidSolver {
         }
       }
       w[i] = wi;
-      if (u[i] !== undefined) u[i] *= VDAMP;
-      if (v[i] !== undefined) v[i] *= VDAMP;
+      u[i]! *= VDAMP;
+      v[i]! *= VDAMP;
     }
   }
 
@@ -147,8 +107,8 @@ export class FluidSolver {
         const vx = (ui + ambUi) * g;
         const vy = (vi + ambVi) * g;
         if (!Number.isFinite(vx) || !Number.isFinite(vy)) {
-          if (u[i] !== undefined) u[i] = 0;
-          if (v[i] !== undefined) v[i] = 0;
+          u[i] = 0;
+          v[i] = 0;
           continue;
         }
         if (vx * vx + vy * vy < 1e-6) continue;
@@ -165,9 +125,8 @@ export class FluidSolver {
         w2[i] = wi + (bl_w - wi) * g;
 
         for (let c = 0; c < 3; c++) {
-          const pc = p[c as 0 | 1 | 2];
-          const p2c = p2[c as 0 | 1 | 2];
-          if (!pc || !p2c) continue;
+          const pc = p[c as ColorIndex];
+          const p2c = p2[c as ColorIndex];
 
           const p00 = pc[j00] ?? 0, p10 = pc[j10] ?? 0, p01 = pc[j01] ?? 0, p11 = pc[j11] ?? 0;
           const bl_p = p00 * a00 + p10 * a10 + p01 * a01 + p11 * a11;
@@ -179,7 +138,7 @@ export class FluidSolver {
 
     [this.grid.w, this.grid.w2] = [this.grid.w2, this.grid.w];
     for (let c = 0; c < 3; c++) {
-      const idx = c as 0 | 1 | 2;
+      const idx = c as ColorIndex;
       [this.grid.p[idx], this.grid.p2[idx]] = [this.grid.p2[idx], this.grid.p[idx]];
     }
   }

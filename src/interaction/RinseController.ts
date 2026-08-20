@@ -1,4 +1,5 @@
 import type { FluidGrid } from '../physics/FluidGrid.ts';
+import type { ColorIndex } from '../types/physics.ts';
 
 export class RinseController {
   public grid: FluidGrid;
@@ -45,9 +46,8 @@ export class RinseController {
         const dis = Math.min(w[i] ?? 0, 1.2) * 0.05;
         if (dis > 0) {
           for (let c = 0; c < 3; c++) {
-            const dc = d[c as 0 | 1 | 2];
-            const pc = p[c as 0 | 1 | 2];
-            if (!dc || !pc) continue;
+            const dc = d[c as ColorIndex];
+            const pc = p[c as ColorIndex];
 
             const dci = dc[i] ?? 0;
             const pci = pc[i] ?? 0;
@@ -63,24 +63,20 @@ export class RinseController {
       const row = y * gw;
       for (let x = 0; x < gw; x++) {
         const i = row + x;
-        if (w[i] !== undefined) w[i]! *= 0.55;
+        w[i]! *= 0.55;
         for (let c = 0; c < 3; c++) {
-          const pc = p[c as 0 | 1 | 2];
-          const dc = d[c as 0 | 1 | 2];
-          if (pc && pc[i] !== undefined) pc[i]! *= 0.5;
-          if (dc && dc[i] !== undefined) dc[i]! *= 0.9;
+          p[c as ColorIndex][i]! *= 0.5;
+          d[c as ColorIndex][i]! *= 0.9;
         }
       }
     }
 
     if (!pouring) {
       for (let i = 0; i < N; i++) {
-        if (w[i] !== undefined) w[i]! *= 0.95;
+        w[i]! *= 0.95;
         for (let c = 0; c < 3; c++) {
-          const dc = d[c as 0 | 1 | 2];
-          const pc = p[c as 0 | 1 | 2];
-          if (dc && dc[i] !== undefined) dc[i]! *= 0.94;
-          if (pc && pc[i] !== undefined) pc[i]! *= 0.94;
+          d[c as ColorIndex][i]! *= 0.94;
+          p[c as ColorIndex][i]! *= 0.94;
         }
       }
     }

@@ -144,6 +144,180 @@ canvas {
     outline-offset: 3px;
 }
 
+/* 作品を残す */
+.share-card-button {
+    position: fixed;
+    right: 22px;
+    bottom: 22px;
+    z-index: 3;
+    writing-mode: vertical-rl;
+    font-family: inherit;
+    font-size: 13px;
+    letter-spacing: .5em;
+    padding: 14px 9px 8px;
+    background: none;
+    border: none;
+    color: rgba(27, 27, 32, .4);
+    border-left: 1px solid rgba(27, 27, 32, .4);
+    cursor: pointer;
+    transition: color .4s;
+}
+
+.share-card-button:hover, .share-card-button:focus-visible {
+    color: rgba(27, 27, 32, .85);
+}
+
+.share-card-button:focus-visible {
+    outline: 1px solid rgba(27, 27, 32, .5);
+    outline-offset: 3px;
+}
+
+.share-dialog {
+    border: none;
+    padding: 0;
+    background: none;
+    max-width: min(420px, 92vw);
+    max-height: 88vh;
+    color: rgba(27, 27, 32, .85);
+}
+
+.share-dialog::backdrop {
+    background: rgba(27, 27, 32, .45);
+}
+
+.share-dialog__content {
+    position: relative;
+    background: #f2ede1;
+    padding: 26px 24px 22px;
+    box-shadow: 0 8px 40px rgba(27, 27, 32, .35);
+    max-height: 88vh;
+    overflow-y: auto;
+}
+
+.share-dialog__close {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    background: none;
+    border: none;
+    font-family: inherit;
+    font-size: 20px;
+    line-height: 1;
+    color: rgba(27, 27, 32, .45);
+    cursor: pointer;
+}
+
+.share-dialog__close:hover, .share-dialog__close:focus-visible {
+    color: rgba(27, 27, 32, .85);
+}
+
+.share-dialog h2 {
+    font-size: 15px;
+    font-weight: normal;
+    letter-spacing: .4em;
+    color: rgba(27, 27, 32, .6);
+    margin-bottom: 16px;
+}
+
+.share-dialog__preview {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1080 / 1350;
+    object-fit: contain;
+    background: rgba(27, 27, 32, .05);
+    margin-bottom: 18px;
+}
+
+.share-dialog__profile {
+    border: none;
+    border-top: 1px solid rgba(27, 27, 32, .18);
+    padding-top: 14px;
+    margin-bottom: 18px;
+}
+
+.share-dialog__profile legend {
+    font-size: 12px;
+    letter-spacing: .3em;
+    color: rgba(27, 27, 32, .5);
+    padding: 0 8px 0 0;
+}
+
+.share-dialog__toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    margin: 10px 0 14px;
+    cursor: pointer;
+}
+
+.share-dialog__profile > label:not(.share-dialog__toggle) {
+    display: block;
+    font-size: 11px;
+    letter-spacing: .2em;
+    color: rgba(27, 27, 32, .5);
+    margin-bottom: 4px;
+}
+
+.share-dialog__profile input[type="text"],
+.share-dialog__profile input[type="url"] {
+    width: 100%;
+    font-family: inherit;
+    font-size: 14px;
+    padding: 7px 9px;
+    margin-bottom: 12px;
+    background: rgba(255, 255, 255, .55);
+    border: 1px solid rgba(27, 27, 32, .25);
+    color: inherit;
+}
+
+.share-dialog__profile input:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.share-dialog__note {
+    font-size: 11px;
+    line-height: 1.7;
+    color: rgba(27, 27, 32, .45);
+}
+
+.share-dialog__actions {
+    display: flex;
+    gap: 10px;
+}
+
+.share-dialog__actions button {
+    flex: 1;
+    font-family: inherit;
+    font-size: 13px;
+    letter-spacing: .2em;
+    padding: 11px 8px;
+    background: none;
+    border: 1px solid rgba(27, 27, 32, .45);
+    color: rgba(27, 27, 32, .8);
+    cursor: pointer;
+    transition: background .3s, color .3s;
+}
+
+.share-dialog__actions button:hover:not(:disabled) {
+    background: rgba(27, 27, 32, .85);
+    color: #f2ede1;
+}
+
+.share-dialog__actions button:disabled {
+    opacity: .35;
+    cursor: not-allowed;
+}
+
+.share-dialog__status {
+    font-size: 11px;
+    line-height: 1.7;
+    color: rgba(27, 27, 32, .5);
+    margin-top: 12px;
+    min-height: 1.7em;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .hint span {
         animation: none;

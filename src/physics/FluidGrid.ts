@@ -1,6 +1,6 @@
 import { CS, AMB } from '../config.ts';
 import { makeNoise } from './Noise.ts';
-import type { GridAreaCallback } from '../types/physics.ts';
+import type { ColorIndex, GridAreaCallback } from '../types/physics.ts';
 
 export class FluidGrid {
   public CS: number;
@@ -97,10 +97,8 @@ export class FluidGrid {
     this.u.fill(0);
     this.v.fill(0);
     for (let c = 0; c < 3; c++) {
-      const pc = this.p[c as 0 | 1 | 2];
-      const dc = this.d[c as 0 | 1 | 2];
-      if (pc) pc.fill(0);
-      if (dc) dc.fill(0);
+      this.p[c as ColorIndex].fill(0);
+      this.d[c as ColorIndex].fill(0);
     }
   }
 }
