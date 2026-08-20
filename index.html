@@ -34,24 +34,20 @@
             <img class="share-dialog__preview" id="cardPreview" alt="生成したカード">
 
             <fieldset class="share-dialog__profile">
-                <legend>作家プロフィール</legend>
+                <legend>作家名の掲載</legend>
 
                 <label class="share-dialog__toggle">
                     <input type="checkbox" id="showProfileToggle">
-                    <span>プロフィールを掲載する</span>
+                    <span>作者名を掲載する</span>
                 </label>
 
                 <label for="creatorName">作者名</label>
                 <input type="text" id="creatorName" maxlength="24" autocomplete="nickname"
                     placeholder="例：墨野 花子">
 
-                <label for="creatorUrl">プロフィールURL</label>
-                <input type="url" id="creatorUrl" inputmode="url" autocomplete="url"
-                    placeholder="https://example.com/profile">
-
                 <p class="share-dialog__note">
-                    掲載をONにすると、作者名・URL・URLのQRコードがカードに入ります。<br>
-                    公開範囲が「非公開」「相互フォローのみ」のプロフィールは、QRコードを読み取っても第三者は閲覧できません。
+                    掲載をONにすると、作者名がカードの右下に入ります。<br>
+                    本名でなくても構いません。名前は端末内にのみ保存されます。
                 </p>
             </fieldset>
 

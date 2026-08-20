@@ -4,16 +4,14 @@
  */
 export interface CreatorProfile {
   displayName: string;
-  profileUrl: string;
-  showQrCode: boolean;
+  showName: boolean;
 }
 
 const STORAGE_KEY = 'bokugi.creator-profile.v1';
 
 export const EMPTY_PROFILE: CreatorProfile = {
   displayName: '',
-  profileUrl: '',
-  showQrCode: false,
+  showName: false,
 };
 
 /**
@@ -54,25 +52,12 @@ export class CreatorProfileStore {
     return {
       displayName:
         typeof source.displayName === 'string' ? source.displayName.slice(0, 24) : '',
-      profileUrl: this.sanitizeUrl(source.profileUrl),
-      showQrCode: source.showQrCode === true,
+      showName: source.showName === true,
     };
-  }
-
-  /** http / https のみ許可する。javascript: 等は捨てる。 */
-  private sanitizeUrl(value: unknown): string {
-    if (typeof value !== 'string' || value.trim() === '') return '';
-    try {
-      const url = new URL(value.trim());
-      if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
-      return url.toString();
-    } catch {
-      return '';
-    }
   }
 }
 
 /** カードに実際に掲載すべき内容があるか。 */
 export function hasPublishableProfile(profile: CreatorProfile): boolean {
-  return profile.displayName.trim() !== '' || profile.profileUrl !== '';
+  return profile.displayName.trim() !== '';
 }

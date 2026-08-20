@@ -1,4 +1,3 @@
-import QRCode from 'qrcode';
 import { hasPublishableProfile, type CreatorProfile } from './CreatorProfile.ts';
 
 export interface CardOptions {
@@ -11,7 +10,6 @@ export interface CardOptions {
 }
 
 const SERIF = '"Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif';
-const QR_SIZE = 132;
 
 export class CardExporter {
   constructor(
@@ -19,12 +17,8 @@ export class CardExporter {
     private readonly inkCanvas: HTMLCanvasElement,
   ) {}
 
-  /**
-   * カードを合成する。
-   * プロフィールのQRコード生成が非同期のため、描画そのものは compose() に閉じ、
-   * QR画像は呼び出し側で事前に用意して渡す。
-   */
-  public compose(options: CardOptions, qrImage?: CanvasImageSource): HTMLCanvasElement {
+  /** カードを合成する。 */
+  public compose(options: CardOptions): HTMLCanvasElement {
     this.assertCanvasSize();
 
     const output = document.createElement('canvas');
@@ -81,13 +75,12 @@ export class CardExporter {
     ctx.restore();
 
     this.drawDecoration(ctx, options);
-    this.drawProfile(ctx, options, qrImage);
+    this.drawProfile(ctx, options);
     return output;
   }
 
   public async createFile(options: CardOptions): Promise<File> {
-    const qrImage = await this.createQrImage(options.profile);
-    const canvas = this.compose(options, qrImage);
+    const canvas = this.compose(options);
 
     const blob = await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob((result) => {
@@ -99,33 +92,6 @@ export class CardExporter {
     return new File([blob], `bokugi-${this.dateString(options.date)}.png`, {
       type: 'image/png',
     });
-  }
-
-  /**
-   * プロフィールURLのQRコードを生成する。
-   * 掲載OFF・URL未設定・生成失敗のいずれでも undefined を返し、カード生成自体は続行する。
-   */
-  private async createQrImage(
-    profile: CreatorProfile | undefined,
-  ): Promise<HTMLImageElement | undefined> {
-    if (!profile?.showQrCode || profile.profileUrl === '') return undefined;
-
-    try {
-      const dataUrl = await QRCode.toDataURL(profile.profileUrl, {
-        width: QR_SIZE * 2,
-        margin: 1,
-        color: { dark: '#27262a', light: '#f2ede1' },
-      });
-
-      return await new Promise<HTMLImageElement>((resolve, reject) => {
-        const image = new Image();
-        image.onload = () => resolve(image);
-        image.onerror = () => reject(new Error('QRコードの読み込みに失敗しました'));
-        image.src = dataUrl;
-      });
-    } catch {
-      return undefined;
-    }
   }
 
   private assertCanvasSize(): void {
@@ -181,58 +147,22 @@ export class CardExporter {
   }
 
   /**
-   * 作者名・プロフィールURL・QRコードを描く。
-   * 掲載がONで、かつ表示する内容がある場合のみ描画する。
+   * 作者名を描く。
+   * 掲載がONで、かつ名前が入力されている場合のみ描画する。
    */
-  private drawProfile(
-    ctx: CanvasRenderingContext2D,
-    options: CardOptions,
-    qrImage?: CanvasImageSource,
-  ): void {
+  private drawProfile(ctx: CanvasRenderingContext2D, options: CardOptions): void {
     const profile = options.profile;
     if (!profile || !hasPublishableProfile(profile)) return;
 
-    // 落款の左側、タイトル行の上に収める
+    // 落款の左側、タイトル行と同じ高さに収める
     const right = options.width - 156;
     const baseline = options.height - 78;
 
-    if (qrImage) {
-      ctx.drawImage(
-        qrImage,
-        right - QR_SIZE,
-        options.height - 72 - QR_SIZE,
-        QR_SIZE,
-        QR_SIZE,
-      );
-    }
-
-    const textRight = qrImage ? right - QR_SIZE - 24 : right;
     ctx.textAlign = 'right';
-
-    const displayName = profile.displayName.trim();
-    if (displayName !== '') {
-      ctx.fillStyle = '#27262a';
-      ctx.font = `30px ${SERIF}`;
-      ctx.fillText(displayName, textRight, baseline - 34, textRight - 260);
-    }
-
-    if (profile.profileUrl !== '') {
-      ctx.fillStyle = 'rgba(39, 38, 42, 0.55)';
-      ctx.font = `21px ${SERIF}`;
-      ctx.fillText(
-        this.shortenUrl(profile.profileUrl),
-        textRight,
-        baseline,
-        textRight - 260,
-      );
-    }
-
+    ctx.fillStyle = '#27262a';
+    ctx.font = `30px ${SERIF}`;
+    ctx.fillText(profile.displayName.trim(), right, baseline, right - 260);
     ctx.textAlign = 'start';
-  }
-
-  /** カードには読みやすさ優先で scheme を落とした形を載せる。 */
-  private shortenUrl(url: string): string {
-    return url.replace(/^https?:\/\//, '').replace(/\/$/, '');
   }
 
   private dateString(date: Date): string {

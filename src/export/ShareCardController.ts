@@ -8,6 +8,8 @@ import {
 const CARD_WIDTH = 1080;
 const CARD_HEIGHT = 1350;
 const CARD_TITLE = '墨戯';
+/** style.css の .share-dialog スライドアニメーションと揃える。 */
+const SLIDE_DURATION_MS = 420;
 
 export class ShareCardController {
   private readonly store = new CreatorProfileStore();
@@ -21,13 +23,14 @@ export class ShareCardController {
   private readonly status: HTMLElement;
 
   private readonly nameInput: HTMLInputElement;
-  private readonly urlInput: HTMLInputElement;
   private readonly showProfileToggle: HTMLInputElement;
 
   private preparedFile: File | null = null;
   private previewUrl: string | null = null;
   private profile: CreatorProfile;
   private generating = false;
+  private closing = false;
+  private closeTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly exporter: CardExporter) {
     this.openButton = this.require<HTMLButtonElement>('shareCardButton');
@@ -39,7 +42,6 @@ export class ShareCardController {
     this.status = this.require<HTMLElement>('shareStatus');
 
     this.nameInput = this.require<HTMLInputElement>('creatorName');
-    this.urlInput = this.require<HTMLInputElement>('creatorUrl');
     this.showProfileToggle = this.require<HTMLInputElement>('showProfileToggle');
 
     this.profile = this.store.load();
@@ -55,21 +57,31 @@ export class ShareCardController {
 
   private initEvents(): void {
     this.openButton.addEventListener('click', () => void this.open());
-    this.closeButton.addEventListener('click', () => this.dialog.close());
+    this.closeButton.addEventListener('click', () => this.requestClose());
 
-    // Esc や背景クリックで閉じた場合も後始末する
-    this.dialog.addEventListener('close', () => this.releasePreview());
+    // Esc も閉じるモーションを挟んでから閉じる
+    this.dialog.addEventListener('cancel', (event) => {
+      event.preventDefault();
+      this.requestClose();
+    });
+
+    // 背景クリックで閉じる
     this.dialog.addEventListener('click', (event) => {
-      if (event.target === this.dialog) this.dialog.close();
+      if (event.target === this.dialog) this.requestClose();
+    });
+
+    // close() の経路によらず後始末する
+    this.dialog.addEventListener('close', () => {
+      this.dialog.classList.remove('is-open', 'is-closing');
+      this.closing = false;
+      this.releasePreview();
     });
 
     this.shareButton.addEventListener('click', () => void this.sharePreparedFile());
     this.downloadButton.addEventListener('click', () => this.downloadPreparedFile());
 
     // プロフィールを変更したらカードを作り直す
-    for (const input of [this.nameInput, this.urlInput]) {
-      input.addEventListener('change', () => void this.onProfileChanged());
-    }
+    this.nameInput.addEventListener('change', () => void this.onProfileChanged());
     this.showProfileToggle.addEventListener('change', () => void this.onProfileChanged());
 
     window.addEventListener('pagehide', () => this.releasePreview());
@@ -77,22 +89,18 @@ export class ShareCardController {
 
   private applyProfileToForm(): void {
     this.nameInput.value = this.profile.displayName;
-    this.urlInput.value = this.profile.profileUrl;
-    this.showProfileToggle.checked = this.profile.showQrCode;
+    this.showProfileToggle.checked = this.profile.showName;
     this.updateProfileFieldState();
   }
 
   private updateProfileFieldState(): void {
-    const enabled = this.showProfileToggle.checked;
-    this.nameInput.disabled = !enabled;
-    this.urlInput.disabled = !enabled;
+    this.nameInput.disabled = !this.showProfileToggle.checked;
   }
 
   private readProfileFromForm(): CreatorProfile {
     return {
       displayName: this.nameInput.value,
-      profileUrl: this.urlInput.value,
-      showQrCode: this.showProfileToggle.checked,
+      showName: this.showProfileToggle.checked,
     };
   }
 
@@ -100,15 +108,41 @@ export class ShareCardController {
     this.store.save(this.readProfileFromForm());
     this.profile = this.store.load();
 
-    // 入力が不正（http/https以外など）なら正規化結果をフォームに反映する
+    // 文字数上限などの正規化結果をフォームに反映する
     this.applyProfileToForm();
 
     if (this.dialog.open) await this.generateCard();
   }
 
   private async open(): Promise<void> {
-    if (!this.dialog.open) this.dialog.showModal();
+    if (this.closeTimer !== undefined) {
+      clearTimeout(this.closeTimer);
+      this.closeTimer = undefined;
+    }
+    this.closing = false;
+    this.dialog.classList.remove('is-closing');
+
+    if (!this.dialog.open) {
+      this.dialog.showModal();
+      // 初期位置（画面左外）を1フレーム描かせてからスライドインさせる
+      requestAnimationFrame(() => this.dialog.classList.add('is-open'));
+    }
+
     await this.generateCard();
+  }
+
+  /** 左へスライドアウトさせてから dialog を閉じる。 */
+  private requestClose(): void {
+    if (!this.dialog.open || this.closing) return;
+
+    this.closing = true;
+    this.dialog.classList.add('is-closing');
+    this.dialog.classList.remove('is-open');
+
+    this.closeTimer = setTimeout(() => {
+      this.closeTimer = undefined;
+      this.dialog.close();
+    }, SLIDE_DURATION_MS);
   }
 
   /** プレビューを開いた段階で File まで作り切る。 */
@@ -152,7 +186,7 @@ export class ShareCardController {
 
   /** 掲載ONで、かつ載せる内容がある場合だけカードへ渡す。 */
   private publishableProfile(): CreatorProfile | undefined {
-    if (!this.profile.showQrCode) return undefined;
+    if (!this.profile.showName) return undefined;
     return hasPublishableProfile(this.profile) ? this.profile : undefined;
   }
 

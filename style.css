@@ -176,13 +176,37 @@ canvas {
     border: none;
     padding: 0;
     background: none;
+    width: min(420px, 92vw);
     max-width: min(420px, 92vw);
     max-height: 88vh;
     color: rgba(27, 27, 32, .85);
+    border-radius: 14px;
+
+    /* 左端から滑り込ませる */
+    margin: auto auto auto max(16px, 4vw);
+    transform: translateX(calc(-100% - 48px));
+    opacity: 0;
+    transition: transform .42s cubic-bezier(.22, .8, .28, 1), opacity .42s ease;
+}
+
+.share-dialog.is-open {
+    transform: translateX(0);
+    opacity: 1;
+}
+
+.share-dialog.is-closing {
+    transform: translateX(calc(-100% - 48px));
+    opacity: 0;
 }
 
 .share-dialog::backdrop {
     background: rgba(27, 27, 32, .45);
+    opacity: 0;
+    transition: opacity .42s ease;
+}
+
+.share-dialog.is-open::backdrop {
+    opacity: 1;
 }
 
 .share-dialog__content {
@@ -192,6 +216,8 @@ canvas {
     box-shadow: 0 8px 40px rgba(27, 27, 32, .35);
     max-height: 88vh;
     overflow-y: auto;
+    /* スクロールしても角の丸みを保つ */
+    border-radius: 14px;
 }
 
 .share-dialog__close {
@@ -322,5 +348,16 @@ canvas {
     .hint span {
         animation: none;
         opacity: .7;
+    }
+
+    /* スライドは行わず、その場で表示する */
+    .share-dialog,
+    .share-dialog.is-closing {
+        transform: none;
+        transition: none;
+    }
+
+    .share-dialog::backdrop {
+        transition: none;
     }
 }
