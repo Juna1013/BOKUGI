@@ -3,12 +3,13 @@ import { FluidGrid } from './physics/FluidGrid.ts';
 import { FluidSolver } from './physics/FluidSolver.ts';
 import { PaperRenderer } from './renderer/PaperRenderer.ts';
 import { InkRenderer } from './renderer/InkRenderer.ts';
+import { WebGpuInkRenderer } from './renderer/WebGpuInkRenderer.ts';
 import { InputController } from './interaction/InputController.ts';
 import { RinseController } from './interaction/RinseController.ts';
 import { CardExporter } from './export/CardExporter.ts';
 import { ShareCardController } from './export/ShareCardController.ts';
 
-(() => {
+void (async () => {
   'use strict';
 
   const paper = document.getElementById('paper') as HTMLCanvasElement | null;
@@ -27,7 +28,8 @@ import { ShareCardController } from './export/ShareCardController.ts';
   const grid = new FluidGrid(W, H);
   const solver = new FluidSolver(grid);
   const paperRenderer = new PaperRenderer(paper);
-  const inkRenderer = new InkRenderer(inkCv);
+  // WebGPU は色計算と格子補間を GPU に委譲する。利用できない環境では 2D 描画を継続する。
+  const inkRenderer = (await WebGpuInkRenderer.create(inkCv)) ?? new InkRenderer(inkCv);
 
   const renderAll = (): void => inkRenderer.render(grid, W, H);
 
