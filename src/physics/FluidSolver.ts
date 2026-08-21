@@ -143,8 +143,15 @@ export class FluidSolver {
     }
   }
 
-  // 3. インク落墨
-  public drop(cx: number, cy: number, amount: number, radius: number, curColor: ColorIndex): void {
+  // 3. 水分・顔料の投入。別々に指定することで水筆と墨の濃淡を表現する。
+  public deposit(
+    cx: number,
+    cy: number,
+    waterAmount: number,
+    pigmentAmount: number,
+    radius: number,
+    curColor: ColorIndex,
+  ): void {
     const r2 = radius * radius;
     const pc = this.grid.p[curColor];
 
@@ -152,8 +159,8 @@ export class FluidSolver {
       const fall = Math.exp(-q2 / (r2 * 0.35));
       const wi = this.grid.w[i] ?? 0;
       const pci = pc[i] ?? 0;
-      this.grid.w[i] = Math.min(wi + amount * fall, 2.4);
-      pc[i] = Math.min(pci + amount * fall * 0.55, 1.5);
+      this.grid.w[i] = Math.min(wi + waterAmount * fall, 2.4);
+      pc[i] = Math.min(pci + pigmentAmount * fall, 1.5);
     });
   }
 

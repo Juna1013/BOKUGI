@@ -1,5 +1,6 @@
-import { CS } from '../config.ts';
+import { BRUSH_PRESETS, CS } from '../config.ts';
 import type { FluidSolver } from '../physics/FluidSolver.ts';
+import type { BrushKind } from '../types/brush.ts';
 import type { ColorIndex } from '../types/physics.ts';
 
 export class InputController {
@@ -8,6 +9,7 @@ export class InputController {
   public renderFn: () => void;
   public reduceMotion: boolean;
   public curColor: ColorIndex = 0;
+  public curBrush: BrushKind = 'dark';
   public down: boolean = false;
   public activePointerId: number | null = null;
   public lastX: number = 0;
@@ -28,6 +30,7 @@ export class InputController {
     this.reduceMotion = reduceMotion;
 
     this.initPalette();
+    this.initBrushes();
     this.initEvents();
   }
 
@@ -39,7 +42,28 @@ export class InputController {
         if (c === 0 || c === 1 || c === 2) {
           this.curColor = c;
         }
-        swatches.forEach(s => s.classList.toggle('on', s === b));
+        swatches.forEach(s => {
+          const selected = s === b;
+          s.classList.toggle('on', selected);
+          s.setAttribute('aria-checked', String(selected));
+        });
+      });
+    });
+  }
+
+  private initBrushes(): void {
+    const brushes = document.querySelectorAll<HTMLButtonElement>('.brushes button');
+    brushes.forEach(button => {
+      button.addEventListener('click', () => {
+        const brush = button.dataset['brush'];
+        if (brush === 'water' || brush === 'light' || brush === 'dark') {
+          this.curBrush = brush;
+        }
+        brushes.forEach(item => {
+          const selected = item === button;
+          item.classList.toggle('on', selected);
+          item.setAttribute('aria-checked', String(selected));
+        });
       });
     });
   }
@@ -62,12 +86,11 @@ export class InputController {
       this.lastPressure = this.pointerPressure(e);
 
       hint?.classList.add('gone');
-      this.solver.drop(
+      this.depositStamp(
         e.clientX,
         e.clientY,
         1.1 + this.lastPressure,
         2.5 + this.lastPressure * 4,
-        this.curColor,
       );
       this.solver.swirl(e.clientX, e.clientY);
 
@@ -100,12 +123,11 @@ export class InputController {
 
   public updateHold(): void {
     if (this.down && ++this.holdT > 20 && this.holdT % 6 === 0) {
-      this.solver.drop(
+      this.depositStamp(
         this.lastX,
         this.lastY,
         0.3 + this.lastPressure * 0.4,
         2.5 + this.lastPressure * 3,
-        this.curColor,
       );
     }
   }
@@ -119,13 +141,14 @@ export class InputController {
     const pressure = this.pointerPressure(e);
     const dt = Math.max(e.timeStamp - this.lastT, 1);
     const gain = Math.min((dist / dt) * 10, 3.5);
+    const preset = BRUSH_PRESETS[this.curBrush];
     const velocityRadius = 4.5 + pressure * 3;
     this.solver.addVel(
       e.clientX,
       e.clientY,
-      (dx / dist) * gain,
-      (dy / dist) * gain,
-      velocityRadius,
+      (dx / dist) * gain * preset.momentum,
+      (dy / dist) * gain * preset.momentum,
+      velocityRadius * preset.radius,
     );
 
     const count = Math.ceil(dist / CS);
@@ -133,12 +156,11 @@ export class InputController {
     for (let k = 1; k <= count; k++) {
       const progress = k / count;
       const stampPressure = this.lastPressure + (pressure - this.lastPressure) * progress;
-      this.solver.drop(
+      this.depositStamp(
         this.lastX + dx * progress,
         this.lastY + dy * progress,
         speedAmount * 0.45 * (0.35 + stampPressure * 1.3),
         2 + stampPressure * 2.4,
-        this.curColor,
       );
     }
 
@@ -146,6 +168,18 @@ export class InputController {
     this.lastY = e.clientY;
     this.lastT = e.timeStamp;
     this.lastPressure = pressure;
+  }
+
+  private depositStamp(x: number, y: number, amount: number, radius: number): void {
+    const preset = BRUSH_PRESETS[this.curBrush];
+    this.solver.deposit(
+      x,
+      y,
+      amount * preset.water,
+      amount * 0.55 * preset.pigment,
+      radius * preset.radius,
+      this.curColor,
+    );
   }
 
   private pointerPressure(e: PointerEvent): number {
