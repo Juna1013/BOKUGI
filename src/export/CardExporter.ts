@@ -1,10 +1,21 @@
 import { hasPublishableProfile, type CreatorProfile } from './CreatorProfile.ts';
 
+export interface CropPosition {
+  x: number;
+  y: number;
+}
+
+export interface ArtworkSnapshot {
+  paperCanvas: HTMLCanvasElement;
+  inkCanvas: HTMLCanvasElement;
+}
+
 export interface CardOptions {
   width: number;
   height: number;
   title: string;
   date: Date;
+  crop: CropPosition;
   /** 掲載がONの場合のみ渡す。未指定なら作品のみのカードになる。 */
   profile?: CreatorProfile;
 }
@@ -17,12 +28,19 @@ export class CardExporter {
     private readonly getInkCanvas: () => HTMLCanvasElement,
   ) {}
 
-  /** カードを合成する。 */
-  public compose(options: CardOptions): HTMLCanvasElement {
-    // WebGPU の表示テクスチャは提示後に読み出せる保証がないため、
-    // 呼び出し時点の物理グリッドから生成したスナップショットを取得する。
+  /** ダイアログを開いた時点の作品を固定し、調整中の物理変化から切り離す。 */
+  public captureArtwork(): ArtworkSnapshot {
     const inkCanvas = this.getInkCanvas();
-    this.assertCanvasSize(inkCanvas);
+    this.assertCanvasSize(this.paperCanvas, inkCanvas);
+    return {
+      paperCanvas: this.cloneCanvas(this.paperCanvas),
+      inkCanvas: this.cloneCanvas(inkCanvas),
+    };
+  }
+
+  /** カードを合成する。 */
+  public compose(options: CardOptions, artwork: ArtworkSnapshot): HTMLCanvasElement {
+    this.assertCanvasSize(artwork.paperCanvas, artwork.inkCanvas);
 
     const output = document.createElement('canvas');
     output.width = options.width;
@@ -41,7 +59,12 @@ export class CardExporter {
       height: output.height - 210,
     };
 
-    const source = this.centerCrop(frame.width / frame.height);
+    const source = this.cropRect(
+      artwork.paperCanvas.width,
+      artwork.paperCanvas.height,
+      frame.width / frame.height,
+      options.crop,
+    );
 
     ctx.save();
     ctx.beginPath();
@@ -50,7 +73,7 @@ export class CardExporter {
 
     // 和紙
     ctx.drawImage(
-      this.paperCanvas,
+      artwork.paperCanvas,
       source.x,
       source.y,
       source.width,
@@ -64,7 +87,7 @@ export class CardExporter {
     // 墨
     ctx.globalCompositeOperation = 'multiply';
     ctx.drawImage(
-      inkCanvas,
+      artwork.inkCanvas,
       source.x,
       source.y,
       source.width,
@@ -82,8 +105,8 @@ export class CardExporter {
     return output;
   }
 
-  public async createFile(options: CardOptions): Promise<File> {
-    const canvas = this.compose(options);
+  public async createFile(options: CardOptions, artwork: ArtworkSnapshot): Promise<File> {
+    const canvas = this.compose(options, artwork);
 
     const blob = await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob((result) => {
@@ -97,37 +120,49 @@ export class CardExporter {
     });
   }
 
-  private assertCanvasSize(inkCanvas: HTMLCanvasElement): void {
+  private assertCanvasSize(
+    paperCanvas: HTMLCanvasElement,
+    inkCanvas: HTMLCanvasElement,
+  ): void {
     if (
-      this.paperCanvas.width !== inkCanvas.width ||
-      this.paperCanvas.height !== inkCanvas.height
+      paperCanvas.width !== inkCanvas.width ||
+      paperCanvas.height !== inkCanvas.height
     ) {
       throw new Error('和紙Canvasと墨Canvasのサイズが一致していません');
     }
   }
 
-  private centerCrop(targetRatio: number) {
-    const width = this.paperCanvas.width;
-    const height = this.paperCanvas.height;
+  private cropRect(
+    width: number,
+    height: number,
+    targetRatio: number,
+    position: CropPosition,
+  ) {
     const sourceRatio = width / height;
+    let cropWidth = width;
+    let cropHeight = height;
 
-    if (sourceRatio > targetRatio) {
-      const croppedWidth = height * targetRatio;
-      return {
-        x: (width - croppedWidth) / 2,
-        y: 0,
-        width: croppedWidth,
-        height,
-      };
-    }
+    if (sourceRatio > targetRatio) cropWidth = height * targetRatio;
+    else cropHeight = width / targetRatio;
 
-    const croppedHeight = width / targetRatio;
+    const maxX = width - cropWidth;
+    const maxY = height - cropHeight;
     return {
-      x: 0,
-      y: (height - croppedHeight) / 2,
-      width,
-      height: croppedHeight,
+      x: Math.max(0, Math.min(position.x, 1)) * maxX,
+      y: Math.max(0, Math.min(position.y, 1)) * maxY,
+      width: cropWidth,
+      height: cropHeight,
     };
+  }
+
+  private cloneCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
+    const clone = document.createElement('canvas');
+    clone.width = source.width;
+    clone.height = source.height;
+    const ctx = clone.getContext('2d');
+    if (!ctx) throw new Error('作品スナップショットを作成できませんでした');
+    ctx.drawImage(source, 0, 0);
+    return clone;
   }
 
   private drawDecoration(

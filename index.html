@@ -44,6 +44,15 @@
 
             <img class="share-dialog__preview" id="cardPreview" alt="生成したカード">
 
+            <fieldset class="share-dialog__crop">
+                <legend>構図を調整</legend>
+                <label for="cropX">左右</label>
+                <input type="range" id="cropX" min="0" max="1" step="0.01" value="0.5">
+                <label for="cropY">上下</label>
+                <input type="range" id="cropY" min="0" max="1" step="0.01" value="0.5">
+                <button type="button" id="resetCropButton">中央に戻す</button>
+            </fieldset>
+
             <fieldset class="share-dialog__profile">
                 <legend>作家名の掲載</legend>
 

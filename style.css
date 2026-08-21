@@ -318,6 +318,46 @@ canvas {
     margin-bottom: 18px;
 }
 
+.share-dialog__crop {
+    display: grid;
+    grid-template-columns: 42px 1fr;
+    align-items: center;
+    gap: 8px 10px;
+    border: none;
+    border-top: 1px solid rgba(27, 27, 32, .18);
+    padding-top: 14px;
+    margin-bottom: 18px;
+}
+
+.share-dialog__crop legend {
+    font-size: 12px;
+    letter-spacing: .3em;
+    color: rgba(27, 27, 32, .5);
+    padding-right: 8px;
+}
+
+.share-dialog__crop label {
+    font-size: 11px;
+    color: rgba(27, 27, 32, .55);
+}
+
+.share-dialog__crop input[type="range"] {
+    width: 100%;
+    accent-color: rgba(27, 27, 32, .7);
+}
+
+.share-dialog__crop button {
+    grid-column: 2;
+    justify-self: end;
+    border: none;
+    border-bottom: 1px solid rgba(27, 27, 32, .3);
+    background: none;
+    color: rgba(27, 27, 32, .55);
+    font-family: inherit;
+    font-size: 11px;
+    cursor: pointer;
+}
+
 .share-dialog__profile {
     border: none;
     border-top: 1px solid rgba(27, 27, 32, .18);

@@ -1,4 +1,4 @@
-import type { CardExporter } from './CardExporter.ts';
+import type { ArtworkSnapshot, CardExporter } from './CardExporter.ts';
 import {
   CreatorProfileStore,
   hasPublishableProfile,
@@ -24,13 +24,19 @@ export class ShareCardController {
 
   private readonly nameInput: HTMLInputElement;
   private readonly showProfileToggle: HTMLInputElement;
+  private readonly cropX: HTMLInputElement;
+  private readonly cropY: HTMLInputElement;
+  private readonly resetCropButton: HTMLButtonElement;
 
   private preparedFile: File | null = null;
+  private artwork: ArtworkSnapshot | null = null;
   private previewUrl: string | null = null;
   private profile: CreatorProfile;
   private generating = false;
+  private generationPending = false;
   private closing = false;
   private closeTimer: ReturnType<typeof setTimeout> | undefined;
+  private cropTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly exporter: CardExporter) {
     this.openButton = this.require<HTMLButtonElement>('shareCardButton');
@@ -43,6 +49,9 @@ export class ShareCardController {
 
     this.nameInput = this.require<HTMLInputElement>('creatorName');
     this.showProfileToggle = this.require<HTMLInputElement>('showProfileToggle');
+    this.cropX = this.require<HTMLInputElement>('cropX');
+    this.cropY = this.require<HTMLInputElement>('cropY');
+    this.resetCropButton = this.require<HTMLButtonElement>('resetCropButton');
 
     this.profile = this.store.load();
     this.applyProfileToForm();
@@ -84,6 +93,21 @@ export class ShareCardController {
     this.nameInput.addEventListener('change', () => void this.onProfileChanged());
     this.showProfileToggle.addEventListener('change', () => void this.onProfileChanged());
 
+    const scheduleCrop = (): void => {
+      if (this.cropTimer !== undefined) clearTimeout(this.cropTimer);
+      this.cropTimer = setTimeout(() => {
+        this.cropTimer = undefined;
+        void this.generateCard();
+      }, 120);
+    };
+    this.cropX.addEventListener('input', scheduleCrop);
+    this.cropY.addEventListener('input', scheduleCrop);
+    this.resetCropButton.addEventListener('click', () => {
+      this.cropX.value = '0.5';
+      this.cropY.value = '0.5';
+      void this.generateCard();
+    });
+
     window.addEventListener('pagehide', () => this.releasePreview());
   }
 
@@ -123,6 +147,7 @@ export class ShareCardController {
     this.dialog.classList.remove('is-closing');
 
     if (!this.dialog.open) {
+      this.artwork = this.exporter.captureArtwork();
       this.dialog.showModal();
       // 初期位置（画面左外）を1フレーム描かせてからスライドインさせる
       requestAnimationFrame(() => this.dialog.classList.add('is-open'));
@@ -147,7 +172,11 @@ export class ShareCardController {
 
   /** プレビューを開いた段階で File まで作り切る。 */
   private async generateCard(): Promise<void> {
-    if (this.generating) return;
+    if (this.generating) {
+      this.generationPending = true;
+      return;
+    }
+    if (!this.artwork) return;
     this.generating = true;
 
     this.setBusy(true);
@@ -159,8 +188,12 @@ export class ShareCardController {
         height: CARD_HEIGHT,
         title: CARD_TITLE,
         date: new Date(),
+        crop: {
+          x: Number(this.cropX.value),
+          y: Number(this.cropY.value),
+        },
         profile: this.publishableProfile(),
-      });
+      }, this.artwork);
 
       this.releasePreview();
       this.preparedFile = file;
@@ -181,6 +214,10 @@ export class ShareCardController {
       );
     } finally {
       this.generating = false;
+      if (this.generationPending && this.dialog.open) {
+        this.generationPending = false;
+        await this.generateCard();
+      }
     }
   }
 
@@ -245,6 +282,12 @@ export class ShareCardController {
 
   /** プレビューに使った Object URL を解放する。 */
   private releasePreview(): void {
+    if (this.cropTimer !== undefined) {
+      clearTimeout(this.cropTimer);
+      this.cropTimer = undefined;
+    }
+    this.artwork = null;
+    this.generationPending = false;
     if (this.previewUrl) {
       URL.revokeObjectURL(this.previewUrl);
       this.previewUrl = null;
