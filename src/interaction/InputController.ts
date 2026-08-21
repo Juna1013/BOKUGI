@@ -13,6 +13,7 @@ export class InputController {
   public lastX: number = 0;
   public lastY: number = 0;
   public lastT: number = 0;
+  public lastPressure: number = 0.5;
   public holdT: number = 0;
 
   constructor(
@@ -57,10 +58,17 @@ export class InputController {
 
       this.lastX = e.clientX;
       this.lastY = e.clientY;
-      this.lastT = performance.now();
+      this.lastT = e.timeStamp;
+      this.lastPressure = this.pointerPressure(e);
 
       hint?.classList.add('gone');
-      this.solver.drop(e.clientX, e.clientY, 1.6, 4.5, this.curColor);
+      this.solver.drop(
+        e.clientX,
+        e.clientY,
+        1.1 + this.lastPressure,
+        2.5 + this.lastPressure * 4,
+        this.curColor,
+      );
       this.solver.swirl(e.clientX, e.clientY);
 
       if (this.reduceMotion) {
@@ -71,30 +79,9 @@ export class InputController {
 
     this.inkCv.addEventListener('pointermove', (e: PointerEvent) => {
       if (!this.down || e.pointerId !== this.activePointerId) return;
-      const now = performance.now();
-      const dx = e.clientX - this.lastX, dy = e.clientY - this.lastY;
-      const dist = Math.hypot(dx, dy);
-
-      if (dist > CS) {
-        const dt = Math.max(now - this.lastT, 8);
-        const gain = Math.min((dist / dt) * 10, 3.5);
-        this.solver.addVel(e.clientX, e.clientY, (dx / dist) * gain, (dy / dist) * gain, 6);
-
-        const n = Math.ceil(dist / CS);
-        const a = Math.max(0.25, 1.1 - dist * 0.02);
-        for (let k = 1; k <= n; k++) {
-          this.solver.drop(
-            this.lastX + (dx * k) / n,
-            this.lastY + (dy * k) / n,
-            a * 0.45,
-            3.2,
-            this.curColor
-          );
-        }
-        this.lastX = e.clientX;
-        this.lastY = e.clientY;
-        this.lastT = now;
-      }
+      const coalesced = e.getCoalescedEvents();
+      const samples = coalesced.length > 0 ? coalesced : [e];
+      for (const sample of samples) this.processPointerSample(sample);
     });
 
     const up = (e: PointerEvent) => {
@@ -113,7 +100,56 @@ export class InputController {
 
   public updateHold(): void {
     if (this.down && ++this.holdT > 20 && this.holdT % 6 === 0) {
-      this.solver.drop(this.lastX, this.lastY, 0.5, 4, this.curColor);
+      this.solver.drop(
+        this.lastX,
+        this.lastY,
+        0.3 + this.lastPressure * 0.4,
+        2.5 + this.lastPressure * 3,
+        this.curColor,
+      );
     }
+  }
+
+  private processPointerSample(e: PointerEvent): void {
+    const dx = e.clientX - this.lastX;
+    const dy = e.clientY - this.lastY;
+    const dist = Math.hypot(dx, dy);
+    if (dist <= CS) return;
+
+    const pressure = this.pointerPressure(e);
+    const dt = Math.max(e.timeStamp - this.lastT, 1);
+    const gain = Math.min((dist / dt) * 10, 3.5);
+    const velocityRadius = 4.5 + pressure * 3;
+    this.solver.addVel(
+      e.clientX,
+      e.clientY,
+      (dx / dist) * gain,
+      (dy / dist) * gain,
+      velocityRadius,
+    );
+
+    const count = Math.ceil(dist / CS);
+    const speedAmount = Math.max(0.25, 1.1 - (dist / dt) * 0.12);
+    for (let k = 1; k <= count; k++) {
+      const progress = k / count;
+      const stampPressure = this.lastPressure + (pressure - this.lastPressure) * progress;
+      this.solver.drop(
+        this.lastX + dx * progress,
+        this.lastY + dy * progress,
+        speedAmount * 0.45 * (0.35 + stampPressure * 1.3),
+        2 + stampPressure * 2.4,
+        this.curColor,
+      );
+    }
+
+    this.lastX = e.clientX;
+    this.lastY = e.clientY;
+    this.lastT = e.timeStamp;
+    this.lastPressure = pressure;
+  }
+
+  private pointerPressure(e: PointerEvent): number {
+    if (e.pointerType !== 'pen') return 0.5;
+    return Math.max(0.05, Math.min(e.pressure, 1));
   }
 }
