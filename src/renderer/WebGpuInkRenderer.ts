@@ -1,3 +1,4 @@
+import { ABS, PIGMENT_DENSITY } from '../config.ts';
 import type { FluidGrid } from '../physics/FluidGrid.ts';
 
 /**
@@ -103,11 +104,11 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
   let pigment = pigmentAndWater.rgb;
   let wetSheen = pigmentAndWater.a * 0.05;
   let absorption = vec3<f32>(
-    pigment.x * 2.55 + pigment.y * 0.28 + pigment.z * 2.75,
-    pigment.x * 2.55 + pigment.y * 2.70 + pigment.z * 1.70,
-    pigment.x * 2.30 + pigment.y * 2.95 + pigment.z * 0.50
+    pigment.x * ${ABS[0][0]} + pigment.y * ${ABS[1][0]} + pigment.z * ${ABS[2][0]},
+    pigment.x * ${ABS[0][1]} + pigment.y * ${ABS[1][1]} + pigment.z * ${ABS[2][1]},
+    pigment.x * ${ABS[0][2]} + pigment.y * ${ABS[1][2]} + pigment.z * ${ABS[2][2]}
   );
-  let color = exp(-(absorption + vec3<f32>(wetSheen)) * grain);
+  let color = exp(-(absorption * ${PIGMENT_DENSITY} + vec3<f32>(wetSheen)) * grain);
   return vec4<f32>(color, 1.0);
 }
 `;

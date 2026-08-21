@@ -8,6 +8,7 @@ export const EVAP: number = 0.99972; // 蒸発率
 export const SUB: number = 2;      // サブステップ数
 export const VDAMP: number = 0.995; // 速度減衰比
 export const AMB: number = 0.085;  // 環流（漂い）の強さ
+export const PIGMENT_DENSITY: number = 1.3; // 表示上の顔料濃度
 
 /**
  * 顔料の吸収係数 [R, G, B]

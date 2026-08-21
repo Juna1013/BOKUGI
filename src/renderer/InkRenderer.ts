@@ -1,4 +1,4 @@
-import { ABS } from '../config.ts';
+import { ABS, PIGMENT_DENSITY } from '../config.ts';
 import type { FluidGrid } from '../physics/FluidGrid.ts';
 
 export class InkRenderer {
@@ -70,9 +70,9 @@ export class InkRenderer {
       const absSum1 = c0 * abs0[1] + c1 * abs1[1] + c2 * abs2[1];
       const absSum2 = c0 * abs0[2] + c1 * abs1[2] + c2 * abs2[2];
 
-      px[o] = 255 * Math.exp(-(absSum0 + sheen) * gn);
-      px[o + 1] = 255 * Math.exp(-(absSum1 + sheen) * gn);
-      px[o + 2] = 255 * Math.exp(-(absSum2 + sheen) * gn);
+      px[o] = 255 * Math.exp(-(absSum0 * PIGMENT_DENSITY + sheen) * gn);
+      px[o + 1] = 255 * Math.exp(-(absSum1 * PIGMENT_DENSITY + sheen) * gn);
+      px[o + 2] = 255 * Math.exp(-(absSum2 * PIGMENT_DENSITY + sheen) * gn);
       px[o + 3] = 255;
     }
 
