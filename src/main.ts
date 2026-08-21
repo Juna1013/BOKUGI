@@ -56,7 +56,28 @@ void (async () => {
 
   setupCanvas();
 
-  const cardExporter = new CardExporter(paper, inkCv);
+  // WebGPU の表示キャンバスは画面提示後に内容が破棄される場合がある。
+  // カード生成時だけ現在のグリッドを Canvas 2D へ再描画し、確実に読み出せる画像を渡す。
+  let exportInkRenderer: InkRenderer | null = null;
+  const getExportInkCanvas = (): HTMLCanvasElement => {
+    if (!exportInkRenderer) {
+      exportInkRenderer = new InkRenderer(document.createElement('canvas'));
+    }
+
+    const exportCanvas = exportInkRenderer.inkCv;
+    if (exportCanvas.width !== paper.width || exportCanvas.height !== paper.height) {
+      exportCanvas.width = paper.width;
+      exportCanvas.height = paper.height;
+      exportInkRenderer.ictx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    if (exportInkRenderer.gridCv.width !== grid.gw || exportInkRenderer.gridCv.height !== grid.gh) {
+      exportInkRenderer.resize(grid.gw, grid.gh);
+    }
+    exportInkRenderer.render(grid, W, H);
+    return exportCanvas;
+  };
+
+  const cardExporter = new CardExporter(paper, getExportInkCanvas);
   new ShareCardController(cardExporter);
 
   let resizeT: ReturnType<typeof setTimeout> | undefined;

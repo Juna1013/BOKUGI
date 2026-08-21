@@ -14,12 +14,15 @@ const SERIF = '"Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif';
 export class CardExporter {
   constructor(
     private readonly paperCanvas: HTMLCanvasElement,
-    private readonly inkCanvas: HTMLCanvasElement,
+    private readonly getInkCanvas: () => HTMLCanvasElement,
   ) {}
 
   /** カードを合成する。 */
   public compose(options: CardOptions): HTMLCanvasElement {
-    this.assertCanvasSize();
+    // WebGPU の表示テクスチャは提示後に読み出せる保証がないため、
+    // 呼び出し時点の物理グリッドから生成したスナップショットを取得する。
+    const inkCanvas = this.getInkCanvas();
+    this.assertCanvasSize(inkCanvas);
 
     const output = document.createElement('canvas');
     output.width = options.width;
@@ -61,7 +64,7 @@ export class CardExporter {
     // 墨
     ctx.globalCompositeOperation = 'multiply';
     ctx.drawImage(
-      this.inkCanvas,
+      inkCanvas,
       source.x,
       source.y,
       source.width,
@@ -94,10 +97,10 @@ export class CardExporter {
     });
   }
 
-  private assertCanvasSize(): void {
+  private assertCanvasSize(inkCanvas: HTMLCanvasElement): void {
     if (
-      this.paperCanvas.width !== this.inkCanvas.width ||
-      this.paperCanvas.height !== this.inkCanvas.height
+      this.paperCanvas.width !== inkCanvas.width ||
+      this.paperCanvas.height !== inkCanvas.height
     ) {
       throw new Error('和紙Canvasと墨Canvasのサイズが一致していません');
     }
