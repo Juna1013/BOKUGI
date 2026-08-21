@@ -8,6 +8,7 @@ export class InputController {
   public solver: FluidSolver;
   public renderFn: () => void;
   public reduceMotion: boolean;
+  public onStrokeStart: () => void;
   public curColor: ColorIndex = 0;
   public curBrush: BrushKind = 'dark';
   public down: boolean = false;
@@ -22,12 +23,14 @@ export class InputController {
     inkCanvas: HTMLCanvasElement,
     solver: FluidSolver,
     renderFn: () => void,
-    reduceMotion: boolean
+    reduceMotion: boolean,
+    onStrokeStart: () => void,
   ) {
     this.inkCv = inkCanvas;
     this.solver = solver;
     this.renderFn = renderFn;
     this.reduceMotion = reduceMotion;
+    this.onStrokeStart = onStrokeStart;
 
     this.initPalette();
     this.initBrushes();
@@ -73,6 +76,7 @@ export class InputController {
 
     this.inkCv.addEventListener('pointerdown', (e: PointerEvent) => {
       if (this.activePointerId !== null) return;
+      this.onStrokeStart();
       this.activePointerId = e.pointerId;
       this.down = true;
       this.holdT = 0;

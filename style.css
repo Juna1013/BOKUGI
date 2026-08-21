@@ -152,6 +152,35 @@ canvas {
     outline-offset: 2px;
 }
 
+.history-controls {
+    position: fixed;
+    right: 72px;
+    top: 24px;
+    z-index: 3;
+    display: flex;
+    gap: 8px;
+}
+
+.history-controls button {
+    width: 34px;
+    height: 34px;
+    border: 1px solid rgba(27, 27, 32, .22);
+    background: rgba(242, 237, 225, .76);
+    color: rgba(27, 27, 32, .7);
+    font-size: 19px;
+    cursor: pointer;
+}
+
+.history-controls button:disabled {
+    opacity: .28;
+    cursor: default;
+}
+
+.history-controls button:focus-visible {
+    outline: 2px solid rgba(27, 27, 32, .6);
+    outline-offset: 2px;
+}
+
 .rinse {
     position: fixed;
     left: 22px;

@@ -1,4 +1,4 @@
-import { SUB } from './config.ts';
+import { CAP, SUB } from './config.ts';
 import { FluidGrid } from './physics/FluidGrid.ts';
 import { FluidSolver } from './physics/FluidSolver.ts';
 import { PaperRenderer } from './renderer/PaperRenderer.ts';
@@ -8,6 +8,7 @@ import { InputController } from './interaction/InputController.ts';
 import { RinseController } from './interaction/RinseController.ts';
 import { CardExporter } from './export/CardExporter.ts';
 import { ShareCardController } from './export/ShareCardController.ts';
+import { FluidHistory } from './history/FluidHistory.ts';
 
 void (async () => {
   'use strict';
@@ -32,14 +33,65 @@ void (async () => {
   const inkRenderer = (await WebGpuInkRenderer.create(inkCv)) ?? new InkRenderer(inkCv);
 
   const renderAll = (): void => inkRenderer.render(grid, W, H);
+  const history = new FluidHistory(grid);
+  const undoButton = document.getElementById('undoButton') as HTMLButtonElement | null;
+  const redoButton = document.getElementById('redoButton') as HTMLButtonElement | null;
 
-  const inputController = new InputController(inkCv, solver, renderAll, reduceMotion);
-  const rinseController = new RinseController(grid, reduceMotion, renderAll);
+  const updateHistoryButtons = (): void => {
+    if (undoButton) undoButton.disabled = !history.canUndo;
+    if (redoButton) redoButton.disabled = !history.canRedo;
+  };
+  const checkpointHistory = (): void => {
+    history.checkpoint();
+    updateHistoryButtons();
+  };
+
+  const inputController = new InputController(
+    inkCv,
+    solver,
+    renderAll,
+    reduceMotion,
+    checkpointHistory,
+  );
+  const rinseController = new RinseController(
+    grid,
+    reduceMotion,
+    renderAll,
+    checkpointHistory,
+  );
+
+  const restoreHistory = (direction: 'undo' | 'redo'): void => {
+    if (inputController.down) return;
+    rinseController.rinsing = 0;
+    const restored = direction === 'undo' ? history.undo() : history.redo();
+    if (!restored) return;
+    solver.wet = grid.w.some(value => value > CAP) ? 1 : 0;
+    renderAll();
+    updateHistoryButtons();
+  };
+
+  undoButton?.addEventListener('click', () => restoreHistory('undo'));
+  redoButton?.addEventListener('click', () => restoreHistory('redo'));
+  window.addEventListener('keydown', (event: KeyboardEvent) => {
+    const target = event.target;
+    if (
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLSelectElement ||
+      !(event.metaKey || event.ctrlKey) ||
+      event.key.toLowerCase() !== 'z'
+    ) return;
+
+    event.preventDefault();
+    restoreHistory(event.shiftKey ? 'redo' : 'undo');
+  });
 
   function setupCanvas(): void {
     W = window.innerWidth;
     H = window.innerHeight;
     grid.resize(W, H);
+    history.clear();
+    updateHistoryButtons();
     inkRenderer.resize(grid.gw, grid.gh);
 
     if (paper && inkCv) {

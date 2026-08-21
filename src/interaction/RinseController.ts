@@ -9,16 +9,23 @@ export class RinseController {
   public R_SWEEP: number = 70;
   public R_TOTAL: number = 290;
 
-  constructor(grid: FluidGrid, reduceMotion: boolean, renderFn: () => void) {
+  constructor(
+    grid: FluidGrid,
+    reduceMotion: boolean,
+    renderFn: () => void,
+    onRinseStart: () => void,
+  ) {
     this.grid = grid;
     this.reduceMotion = reduceMotion;
     this.renderFn = renderFn;
 
     document.getElementById('rinse')?.addEventListener('click', () => {
+      if (this.rinsing) return;
+      onRinseStart();
       if (this.reduceMotion) {
         this.grid.clearAll();
         this.renderFn();
-      } else if (!this.rinsing) {
+      } else {
         this.rinsing = 1;
       }
     });
