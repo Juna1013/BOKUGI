@@ -176,7 +176,7 @@ export class FluidSolver {
 
   // 5. 渦運動の付与
   public swirl(cx: number, cy: number): void {
-    const R = 9, dir = Math.random() < 0.5 ? 1 : -1;
+    const R = 27 / this.grid.CS, dir = Math.random() < 0.5 ? 1 : -1;
     this.grid.gridArea(cx, cy, R, (i, dx, dy, q2) => {
       const q = Math.sqrt(q2);
       if (q < 0.5) return;

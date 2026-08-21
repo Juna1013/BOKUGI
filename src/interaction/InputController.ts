@@ -140,22 +140,23 @@ export class InputController {
     const dx = e.clientX - this.lastX;
     const dy = e.clientY - this.lastY;
     const dist = Math.hypot(dx, dy);
-    if (dist <= CS) return;
+    if (dist <= this.solver.grid.CS) return;
 
     const pressure = this.pointerPressure(e);
     const dt = Math.max(e.timeStamp - this.lastT, 1);
     const gain = Math.min((dist / dt) * 10, 3.5);
     const preset = BRUSH_PRESETS[this.curBrush];
+    const radiusScale = CS / this.solver.grid.CS;
     const velocityRadius = 4.5 + pressure * 3;
     this.solver.addVel(
       e.clientX,
       e.clientY,
       (dx / dist) * gain * preset.momentum,
       (dy / dist) * gain * preset.momentum,
-      velocityRadius * preset.radius,
+      velocityRadius * preset.radius * radiusScale,
     );
 
-    const count = Math.ceil(dist / CS);
+    const count = Math.ceil(dist / this.solver.grid.CS);
     const speedAmount = Math.max(0.25, 1.1 - (dist / dt) * 0.12);
     for (let k = 1; k <= count; k++) {
       const progress = k / count;
@@ -181,7 +182,7 @@ export class InputController {
       y,
       amount * preset.water,
       amount * 0.55 * preset.pigment,
-      radius * preset.radius,
+      radius * preset.radius * (CS / this.solver.grid.CS),
       this.curColor,
     );
   }

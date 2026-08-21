@@ -23,16 +23,16 @@ export class FluidGrid {
   public p2!: [Float32Array, Float32Array, Float32Array];
   public d!: [Float32Array, Float32Array, Float32Array];
 
-  constructor(W: number, H: number) {
-    this.CS = CS;
+  constructor(W: number, H: number, cellSize: number = CS) {
+    this.CS = cellSize;
     this.resize(W, H);
   }
 
   public resize(W: number, H: number): void {
     this.W = W;
     this.H = H;
-    this.gw = Math.ceil(W / CS);
-    this.gh = Math.ceil(H / CS);
+    this.gw = Math.ceil(W / this.CS);
+    this.gh = Math.ceil(H / this.CS);
     this.N = this.gw * this.gh;
 
     this.w = new Float32Array(this.N);

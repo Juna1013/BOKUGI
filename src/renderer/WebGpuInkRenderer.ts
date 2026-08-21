@@ -124,6 +124,8 @@ export class WebGpuInkRenderer {
   private cellData = new Float32Array(0);
   private gridInfo = new Uint32Array(4);
   private cellCount = 0;
+  private gridWidth = 0;
+  private gridHeight = 0;
 
   private constructor(canvas: HTMLCanvasElement, device: GpuDevice, format: string, context: GpuCanvasContext) {
     this.device = device;
@@ -155,12 +157,15 @@ export class WebGpuInkRenderer {
   }
 
   public resize(gw: number, gh: number): void {
+    if (this.gridWidth === gw && this.gridHeight === gh) return;
+    this.gridWidth = gw;
+    this.gridHeight = gh;
+    this.gridInfo = new Uint32Array([gw, gh, 0, 0]);
+
     const cellCount = gw * gh;
     if (this.cellCount === cellCount) return;
-
     this.cellCount = cellCount;
     this.cellData = new Float32Array(cellCount * 8);
-    this.gridInfo = new Uint32Array([gw, gh, 0, 0]);
     this.cellBuffer = this.device.createBuffer({ size: this.cellData.byteLength, usage: GPU_BUFFER_USAGE_STORAGE | GPU_BUFFER_USAGE_COPY_DST });
     this.gridBuffer = this.device.createBuffer({ size: this.gridInfo.byteLength, usage: GPU_BUFFER_USAGE_COPY_DST | 0x0040 });
     this.bindGroup = this.device.createBindGroup({

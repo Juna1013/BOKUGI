@@ -9,6 +9,8 @@ import { RinseController } from './interaction/RinseController.ts';
 import { CardExporter } from './export/CardExporter.ts';
 import { ShareCardController } from './export/ShareCardController.ts';
 import { FluidHistory } from './history/FluidHistory.ts';
+import { FrameBudgetMonitor } from './quality/FrameBudgetMonitor.ts';
+import { selectQuality } from './quality/QualityPolicy.ts';
 
 void (async () => {
   'use strict';
@@ -20,13 +22,16 @@ void (async () => {
     throw new Error('Canvas elements (#paper, #inkLayer) not found in DOM.');
   }
 
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const deviceDpr = Math.min(window.devicePixelRatio || 1, 2);
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   let W = window.innerWidth;
   let H = window.innerHeight;
+  const webGpuAvailable = 'gpu' in navigator;
+  const quality = selectQuality(W, H, webGpuAvailable);
+  let renderDpr = Math.min(deviceDpr, quality.maxRenderDpr);
 
-  const grid = new FluidGrid(W, H);
+  const grid = new FluidGrid(W, H, quality.cellSize);
   const solver = new FluidSolver(grid);
   const paperRenderer = new PaperRenderer(paper);
   // WebGPU は色計算と格子補間を GPU に委譲する。利用できない環境では 2D 描画を継続する。
@@ -86,7 +91,16 @@ void (async () => {
     restoreHistory(event.shiftKey ? 'redo' : 'undo');
   });
 
+  function resizeInkSurface(): void {
+    if (!inkCv) return;
+    inkCv.width = W * renderDpr;
+    inkCv.height = H * renderDpr;
+    inkCv.getContext('2d')?.setTransform(renderDpr, 0, 0, renderDpr, 0, 0);
+    inkRenderer.initSmoothing();
+  }
+
   function setupCanvas(): void {
+    if (!paper) return;
     W = window.innerWidth;
     H = window.innerHeight;
     grid.resize(W, H);
@@ -94,14 +108,10 @@ void (async () => {
     updateHistoryButtons();
     inkRenderer.resize(grid.gw, grid.gh);
 
-    if (paper && inkCv) {
-      for (const c of [paper, inkCv]) {
-        c.width = W * dpr;
-        c.height = H * dpr;
-        c.getContext('2d')?.setTransform(dpr, 0, 0, dpr, 0, 0);
-      }
-    }
-    inkRenderer.initSmoothing();
+    paper.width = W * deviceDpr;
+    paper.height = H * deviceDpr;
+    paper.getContext('2d')?.setTransform(deviceDpr, 0, 0, deviceDpr, 0, 0);
+    resizeInkSurface();
     paperRenderer.render(W, H);
     renderAll();
   }
@@ -120,7 +130,7 @@ void (async () => {
     if (exportCanvas.width !== paper.width || exportCanvas.height !== paper.height) {
       exportCanvas.width = paper.width;
       exportCanvas.height = paper.height;
-      exportInkRenderer.ictx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      exportInkRenderer.ictx.setTransform(deviceDpr, 0, 0, deviceDpr, 0, 0);
     }
     if (exportInkRenderer.gridCv.width !== grid.gw || exportInkRenderer.gridCv.height !== grid.gh) {
       exportInkRenderer.resize(grid.gw, grid.gh);
@@ -132,6 +142,16 @@ void (async () => {
   const cardExporter = new CardExporter(paper, getExportInkCanvas);
   new ShareCardController(cardExporter);
 
+  const frameBudget = new FrameBudgetMonitor(
+    renderDpr,
+    Math.min(deviceDpr, quality.maxRenderDpr),
+    (nextDpr) => {
+      renderDpr = nextDpr;
+      resizeInkSurface();
+      renderAll();
+    },
+  );
+
   let resizeT: ReturnType<typeof setTimeout> | undefined;
   window.addEventListener('resize', () => {
     if (resizeT !== undefined) clearTimeout(resizeT);
@@ -140,6 +160,8 @@ void (async () => {
 
   function loop(): void {
     if (!reduceMotion) {
+      const active = solver.wet > 0 || rinseController.rinsing > 0 || inputController.down;
+      const startedAt = performance.now();
       inputController.updateHold();
       for (let s = 0; s < SUB; s++) solver.simStep();
       solver.advect();
@@ -148,6 +170,7 @@ void (async () => {
       if (solver.wet > 0 || rinseController.rinsing > 0 || inputController.down) {
         renderAll();
       }
+      if (active && !document.hidden) frameBudget.sample(performance.now() - startedAt);
     }
     requestAnimationFrame(loop);
   }
