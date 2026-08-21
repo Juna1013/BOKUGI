@@ -17,7 +17,8 @@
 
 - TypeScript 5（`strict` に加え `noUncheckedIndexedAccess` / `noUnusedLocals` などを有効化）
 - Vite 5
-- Canvas 2D API（ライブラリ非依存・追加の実行時依存なし）
+- WebGPU（顔料の光学計算・格子補間）を優先利用し、Canvas 2D API に自動フォールバック
+- ライブラリ非依存・追加の実行時依存なし
 
 ## セットアップ
 
@@ -48,7 +49,8 @@ src/
 │   └── FluidSolver.ts            毛細管拡散・定着・移流ソルバー
 ├── renderer/
 │   ├── PaperRenderer.ts          和紙テクスチャ・繊維の静的描画
-│   └── InkRenderer.ts            減法混色計算と低解像度オフスクリーン転送
+│   ├── InkRenderer.ts            Canvas 2D フォールバック描画
+│   └── WebGpuInkRenderer.ts      GPU 減法混色・格子補間描画
 ├── interaction/
 │   ├── InputController.ts        Pointer Events・落墨・筆致の運動量付与
 │   └── RinseController.ts        水洗いの前線波と顔料の再溶解
@@ -64,9 +66,11 @@ src/
 
 背景の和紙（`#paper`）と墨（`#inkLayer`）を別々のキャンバスに分け、CSS の `mix-blend-mode: multiply` で合成しています。和紙は初期化時とリサイズ時のみ描画すればよく、毎フレームの再描画対象は墨層だけに絞られます。
 
-### 格子解像度の削減
+### WebGPU 描画と格子解像度の削減
 
-1セル = 3 CSS px（`CS = 3`）で物理場を保持することで計算量を約 1/9 に抑え、描画時の補間拡大と乗算合成によって滑らかな見た目を得ています。TypedArray と ImageData は事前に確保して再利用し、ループ内でのメモリ確保を避けています。
+1セル = 3 CSS px（`CS = 3`）で物理場を保持することで計算量を約 1/9 に抑えます。WebGPU 対応ブラウザでは、各セルの顔料・水分・紙目をストレージバッファとしてアップロードし、減法混色の光学計算と双線形補間をフラグメントシェーダーで実行します。これにより毎フレームの `ImageData` 更新と Canvas 2D の拡大転送を回避し、入力中も滑らかな描画を維持します。
+
+WebGPU が使えない環境では、既存の `ImageData` を再利用する Canvas 2D 描画へ自動フォールバックするため、機能と PNG 書き出しは従来どおり利用できます。
 
 ### 描画スキップ
 
@@ -86,4 +90,4 @@ src/
 
 ## 動作環境
 
-Pointer Events と Canvas 2D に対応したモダンブラウザ（Chrome / Edge / Safari / Firefox の最新版）。作品カードの直接共有は Web Share API（`navigator.canShare({ files })`）に対応した端末でのみ有効で、主に iOS / Android が対象です。非対応環境では PNG のダウンロードに切り替わります。
+Pointer Events と Canvas 2D に対応したモダンブラウザ（Chrome / Edge / Safari / Firefox の最新版）。WebGPU に対応する Chrome / Edge / Safari では GPU 描画を利用し、非対応ブラウザでは Canvas 2D 描画に自動で切り替わります。作品カードの直接共有は Web Share API（`navigator.canShare({ files })`）に対応した端末でのみ有効で、主に iOS / Android が対象です。非対応環境では PNG のダウンロードに切り替わります。
