@@ -10,6 +10,32 @@ export class FluidSolver {
     this.grid = grid;
   }
 
+  public get isGpu(): boolean {
+    return false;
+  }
+
+  public resize(width: number, height: number): void {
+    this.grid.resize(width, height);
+    this.wet = 0;
+  }
+
+  public runSteps(count: number): void {
+    for (let step = 0; step < count; step++) this.simStep();
+  }
+
+  /** GPU実装との共通境界。CPU版では配列が常に正本なので同期は不要。 */
+  public readback(): Promise<void> | null {
+    return null;
+  }
+
+  /** Undo/Redoで復元されたCPU配列を実行状態へ反映する。 */
+  public uploadFromGrid(): void {}
+
+  public clearAll(): void {
+    this.grid.clearAll();
+    this.wet = 0;
+  }
+
   // 1. 毛細管拡散・蒸発・顔料定着
   public simStep(): void {
     const { gw, gh, N, w, w2, u, v, perm, p, p2, d } = this.grid;
@@ -172,6 +198,56 @@ export class FluidSolver {
       if (this.grid.u[i] !== undefined) this.grid.u[i] += vx * fall;
       if (this.grid.v[i] !== undefined) this.grid.v[i] += vy * fall;
     });
+  }
+
+  /** 水洗いの1フレーム。GPU版でも同じ呼び出し境界を使用する。 */
+  public rinseStep(t: number, sweepFrames: number, totalFrames: number): void {
+    const { gh, gw, w, v, u, ambU, d, p, N } = this.grid;
+    const frontRow = Math.min(gh, ((gh * t / sweepFrames) | 0) + 2);
+    const pouring = t < totalFrames - 100;
+
+    for (let y = 0; y < frontRow; y++) {
+      const row = y * gw;
+      for (let x = 0; x < gw; x++) {
+        const i = row + x;
+        const wi = w[i] ?? 0;
+        if (pouring && wi < 2.2) w[i] = wi + 0.13;
+        if ((v[i] ?? 0) < 1.4) v[i]! += 0.13;
+        u[i]! += (Math.random() - 0.5) * 0.07 + (ambU[i] ?? 0) * 0.5;
+
+        const dissolve = Math.min(w[i] ?? 0, 1.2) * 0.05;
+        for (let c = 0; c < 3; c++) {
+          const index = c as ColorIndex;
+          const moved = (d[index][i] ?? 0) * dissolve;
+          d[index][i]! -= moved;
+          p[index][i]! += moved;
+        }
+      }
+    }
+
+    for (let y = Math.max(0, gh - 3); y < gh; y++) {
+      for (let x = 0; x < gw; x++) {
+        const i = y * gw + x;
+        w[i]! *= 0.55;
+        for (let c = 0; c < 3; c++) {
+          const index = c as ColorIndex;
+          p[index][i]! *= 0.5;
+          d[index][i]! *= 0.9;
+        }
+      }
+    }
+
+    if (!pouring) {
+      for (let i = 0; i < N; i++) {
+        w[i]! *= 0.95;
+        for (let c = 0; c < 3; c++) {
+          const index = c as ColorIndex;
+          d[index][i]! *= 0.94;
+          p[index][i]! *= 0.94;
+        }
+      }
+    }
+    this.wet = 1;
   }
 
   // 5. 渦運動の付与

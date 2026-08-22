@@ -99,7 +99,7 @@ export class InputController {
       this.solver.swirl(e.clientX, e.clientY);
 
       if (this.reduceMotion) {
-        for (let k = 0; k < 260; k++) this.solver.simStep();
+        this.solver.runSteps(260);
         this.renderFn();
       }
     });

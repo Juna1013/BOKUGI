@@ -25,12 +25,12 @@ const SERIF = '"Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif';
 export class CardExporter {
   constructor(
     private readonly paperCanvas: HTMLCanvasElement,
-    private readonly getInkCanvas: () => HTMLCanvasElement,
+    private readonly getInkCanvas: () => HTMLCanvasElement | Promise<HTMLCanvasElement>,
   ) {}
 
   /** ダイアログを開いた時点の作品を固定し、調整中の物理変化から切り離す。 */
-  public captureArtwork(): ArtworkSnapshot {
-    const inkCanvas = this.getInkCanvas();
+  public async captureArtwork(): Promise<ArtworkSnapshot> {
+    const inkCanvas = await this.getInkCanvas();
     this.assertCanvasSize(this.paperCanvas, inkCanvas);
     return {
       paperCanvas: this.cloneCanvas(this.paperCanvas),

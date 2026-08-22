@@ -1,47 +1,16 @@
 import { ABS, PIGMENT_DENSITY } from '../config.ts';
+import { WebGpuFluidSolver } from '../physics/WebGpuFluidSolver.ts';
 import type { FluidGrid } from '../physics/FluidGrid.ts';
-
-/**
- * WebGPU の型定義は TypeScript の標準 DOM lib に含まれないため、ここでは
- * 実行時に利用する API の形だけを宣言する。WebGPU 非対応環境では生成されない。
- */
-type GpuApi = {
-  requestAdapter: () => Promise<GpuAdapter | null>;
-  getPreferredCanvasFormat: () => string;
-};
-
-type GpuAdapter = { requestDevice: () => Promise<GpuDevice> };
-type GpuDevice = {
-  createBuffer: (descriptor: Record<string, unknown>) => GpuBuffer;
-  createShaderModule: (descriptor: Record<string, unknown>) => unknown;
-  createRenderPipeline: (descriptor: Record<string, unknown>) => GpuPipeline;
-  createBindGroup: (descriptor: Record<string, unknown>) => GpuBindGroup;
-  queue: {
-    writeBuffer: (buffer: GpuBuffer, offset: number, data: ArrayBufferView) => void;
-    submit: (commands: unknown[]) => void;
-  };
-  createCommandEncoder: () => GpuCommandEncoder;
-};
-type GpuBuffer = unknown;
-type GpuPipeline = { getBindGroupLayout: (index: number) => unknown };
-type GpuBindGroup = unknown;
-type GpuCommandEncoder = {
-  beginRenderPass: (descriptor: Record<string, unknown>) => GpuRenderPass;
-  finish: () => unknown;
-};
-type GpuRenderPass = {
-  setPipeline: (pipeline: GpuPipeline) => void;
-  setBindGroup: (index: number, bindGroup: GpuBindGroup) => void;
-  draw: (vertexCount: number) => void;
-  end: () => void;
-};
-type GpuCanvasContext = {
-  configure: (configuration: Record<string, unknown>) => void;
-  getCurrentTexture: () => { createView: () => unknown };
-};
-
-const GPU_BUFFER_USAGE_STORAGE = 0x0080;
-const GPU_BUFFER_USAGE_COPY_DST = 0x0008;
+import {
+  GPU_BUFFER_USAGE_COPY_DST,
+  GPU_BUFFER_USAGE_UNIFORM,
+  type GpuApi,
+  type GpuBindGroup,
+  type GpuBuffer,
+  type GpuCanvasContext,
+  type GpuDevice,
+  type GpuRenderPipeline,
+} from './WebGpuTypes.ts';
 
 const shader = /* wgsl */ `
 struct GridInfo {
@@ -49,14 +18,14 @@ struct GridInfo {
   _padding: vec2<u32>,
 };
 
-// vec4 を2つ並べ、CPU 側の8 float（32 bytes）と stride を厳密に一致させる。
-// f32 の直後に vec3 を置くと WGSL の16-byte alignmentで隙間が生じるため不可。
-struct Cell {
-  pigmentAndWater: vec4<f32>,
-  material: vec4<f32>, // grain, unused, unused, unused
+struct FluidCell {
+  fluid: vec4<f32>,       // water, velocity x, velocity y, pigment 0
+  pigments: vec4<f32>,   // pigment 1, pigment 2, fixed 0, fixed 1
+  material: vec4<f32>,   // fixed 2, permeability, ambient x, ambient y
+  paper: vec4<f32>,      // grain, unused...
 };
 
-@group(0) @binding(0) var<storage, read> cells: array<Cell>;
+@group(0) @binding(0) var<storage, read> cells: array<FluidCell>;
 @group(0) @binding(1) var<uniform> grid: GridInfo;
 
 struct VertexOutput {
@@ -71,16 +40,18 @@ fn vertexMain(@builtin(vertex_index) index: u32) -> VertexOutput {
   );
   var output: VertexOutput;
   output.position = vec4<f32>(positions[index], 0.0, 1.0);
-  // WebGPU の NDC はY上向き、格子と Pointer Events はY下向き。
-  output.uv = vec2<f32>(
-    positions[index].x * 0.5 + 0.5,
-    0.5 - positions[index].y * 0.5
-  );
+  output.uv = vec2<f32>(positions[index].x * 0.5 + 0.5, 0.5 - positions[index].y * 0.5);
   return output;
 }
 
-fn cellAt(x: u32, y: u32) -> Cell {
-  return cells[y * grid.size.x + x];
+fn cellAt(x: u32, y: u32) -> vec4<f32> {
+  let cell = cells[y * grid.size.x + x];
+  return vec4<f32>(
+    cell.pigments.z * 1.15 + cell.fluid.w * 0.55,
+    cell.pigments.w * 1.15 + cell.pigments.x * 0.55,
+    cell.material.x * 1.15 + cell.pigments.y * 0.55,
+    cell.fluid.x
+  );
 }
 
 @fragment
@@ -90,25 +61,19 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
   let base = vec2<u32>(floor(position));
   let next = min(base + vec2<u32>(1u), grid.size - vec2<u32>(1u));
   let fraction = fract(position);
-
-  let topLeft = cellAt(base.x, base.y);
-  let topRight = cellAt(next.x, base.y);
-  let bottomLeft = cellAt(base.x, next.y);
-  let bottomRight = cellAt(next.x, next.y);
-  let topPigment = mix(topLeft.pigmentAndWater, topRight.pigmentAndWater, fraction.x);
-  let bottomPigment = mix(bottomLeft.pigmentAndWater, bottomRight.pigmentAndWater, fraction.x);
-  let pigmentAndWater = mix(topPigment, bottomPigment, fraction.y);
-  let topGrain = mix(topLeft.material.x, topRight.material.x, fraction.x);
-  let bottomGrain = mix(bottomLeft.material.x, bottomRight.material.x, fraction.x);
-  let grain = mix(topGrain, bottomGrain, fraction.y);
+  let pigmentAndWater = mix(
+    mix(cellAt(base.x, base.y), cellAt(next.x, base.y), fraction.x),
+    mix(cellAt(base.x, next.y), cellAt(next.x, next.y), fraction.x),
+    fraction.y
+  );
+  let grain = cells[base.y * grid.size.x + base.x].paper.x;
   let pigment = pigmentAndWater.rgb;
-  let wetSheen = pigmentAndWater.a * 0.05;
   let absorption = vec3<f32>(
     pigment.x * ${ABS[0][0]} + pigment.y * ${ABS[1][0]} + pigment.z * ${ABS[2][0]},
     pigment.x * ${ABS[0][1]} + pigment.y * ${ABS[1][1]} + pigment.z * ${ABS[2][1]},
     pigment.x * ${ABS[0][2]} + pigment.y * ${ABS[1][2]} + pigment.z * ${ABS[2][2]}
   );
-  let color = exp(-(absorption * ${PIGMENT_DENSITY} + vec3<f32>(wetSheen)) * grain);
+  let color = exp(-(absorption * ${PIGMENT_DENSITY} + vec3<f32>(pigmentAndWater.a * 0.05)) * grain);
   return vec4<f32>(color, 1.0);
 }
 `;
@@ -117,25 +82,26 @@ export class WebGpuInkRenderer {
   private readonly context: GpuCanvasContext;
   private readonly device: GpuDevice;
   private readonly format: string;
-  private readonly pipeline: GpuPipeline;
-  private cellBuffer: GpuBuffer | null = null;
-  private gridBuffer: GpuBuffer | null = null;
+  private readonly pipeline: GpuRenderPipeline;
+  private gridBuffer: GpuBuffer;
   private bindGroup: GpuBindGroup | null = null;
-  private cellData = new Float32Array(0);
   private gridInfo = new Uint32Array(4);
-  private cellCount = 0;
-  private gridWidth = 0;
-  private gridHeight = 0;
+  private boundStateVersion = -1;
 
   private constructor(canvas: HTMLCanvasElement, device: GpuDevice, format: string, context: GpuCanvasContext) {
     this.device = device;
     this.format = format;
     this.context = context;
+    const module = device.createShaderModule({ code: shader });
     this.pipeline = device.createRenderPipeline({
       layout: 'auto',
-      vertex: { module: device.createShaderModule({ code: shader }), entryPoint: 'vertexMain' },
-      fragment: { module: device.createShaderModule({ code: shader }), entryPoint: 'fragmentMain', targets: [{ format }] },
+      vertex: { module, entryPoint: 'vertexMain' },
+      fragment: { module, entryPoint: 'fragmentMain', targets: [{ format }] },
       primitive: { topology: 'triangle-list' },
+    });
+    this.gridBuffer = device.createBuffer({
+      size: this.gridInfo.byteLength,
+      usage: GPU_BUFFER_USAGE_COPY_DST | GPU_BUFFER_USAGE_UNIFORM,
     });
     this.configure(canvas);
   }
@@ -156,47 +122,33 @@ export class WebGpuInkRenderer {
     }
   }
 
-  public resize(gw: number, gh: number): void {
-    if (this.gridWidth === gw && this.gridHeight === gh) return;
-    this.gridWidth = gw;
-    this.gridHeight = gh;
-    this.gridInfo = new Uint32Array([gw, gh, 0, 0]);
+  public createSolver(grid: FluidGrid): WebGpuFluidSolver {
+    return new WebGpuFluidSolver(grid, this.device);
+  }
 
-    const cellCount = gw * gh;
-    if (this.cellCount === cellCount) return;
-    this.cellCount = cellCount;
-    this.cellData = new Float32Array(cellCount * 8);
-    this.cellBuffer = this.device.createBuffer({ size: this.cellData.byteLength, usage: GPU_BUFFER_USAGE_STORAGE | GPU_BUFFER_USAGE_COPY_DST });
-    this.gridBuffer = this.device.createBuffer({ size: this.gridInfo.byteLength, usage: GPU_BUFFER_USAGE_COPY_DST | 0x0040 });
-    this.bindGroup = this.device.createBindGroup({
-      layout: this.pipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: this.cellBuffer } },
-        { binding: 1, resource: { buffer: this.gridBuffer } },
-      ],
-    });
+  public resize(gw: number, gh: number): void {
+    this.gridInfo = new Uint32Array([gw, gh, 0, 0]);
+    this.device.queue.writeBuffer(this.gridBuffer, 0, this.gridInfo);
+    this.boundStateVersion = -1;
   }
 
   public initSmoothing(): void {
     // 格子補間はフラグメントシェーダーで行うため Canvas 2D の設定は不要。
   }
 
-  public render(grid: FluidGrid, _W: number, _H: number): void {
-    if (!this.cellBuffer || !this.gridBuffer || !this.bindGroup) return;
-    const { N, d, p, w, grain } = grid;
-    const cells = this.cellData;
-
-    for (let i = 0; i < N; i++) {
-      const offset = i * 8;
-      cells[offset] = (d[0][i] ?? 0) * 1.15 + (p[0][i] ?? 0) * 0.55;
-      cells[offset + 1] = (d[1][i] ?? 0) * 1.15 + (p[1][i] ?? 0) * 0.55;
-      cells[offset + 2] = (d[2][i] ?? 0) * 1.15 + (p[2][i] ?? 0) * 0.55;
-      cells[offset + 3] = w[i] ?? 0;
-      cells[offset + 4] = grain[i] ?? 1;
+  public render(solver: WebGpuFluidSolver, _W: number, _H: number): void {
+    solver.flushOperations();
+    if (this.boundStateVersion !== solver.stateVersion || !this.bindGroup) {
+      this.bindGroup = this.device.createBindGroup({
+        layout: this.pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: solver.stateBuffer } },
+          { binding: 1, resource: { buffer: this.gridBuffer } },
+        ],
+      });
+      this.boundStateVersion = solver.stateVersion;
     }
 
-    this.device.queue.writeBuffer(this.cellBuffer, 0, cells);
-    this.device.queue.writeBuffer(this.gridBuffer, 0, this.gridInfo);
     const encoder = this.device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
       colorAttachments: [{

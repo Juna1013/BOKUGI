@@ -147,7 +147,7 @@ export class ShareCardController {
     this.dialog.classList.remove('is-closing');
 
     if (!this.dialog.open) {
-      this.artwork = this.exporter.captureArtwork();
+      this.artwork = await this.exporter.captureArtwork();
       this.dialog.showModal();
       // 初期位置（画面左外）を1フレーム描かせてからスライドインさせる
       requestAnimationFrame(() => this.dialog.classList.add('is-open'));

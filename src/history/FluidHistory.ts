@@ -1,4 +1,4 @@
-import type { FluidGrid } from '../physics/FluidGrid.ts';
+import type { FluidSolver } from '../physics/FluidSolver.ts';
 import type { ColorIndex } from '../types/physics.ts';
 
 interface FluidSnapshot {
@@ -16,9 +16,11 @@ export class FluidHistory {
   private readonly undoStack: FluidSnapshot[] = [];
   private readonly redoStack: FluidSnapshot[] = [];
   private storedBytes = 0;
+  private pendingCheckpoints: Promise<void> = Promise.resolve();
+  private generation = 0;
 
   constructor(
-    private readonly grid: FluidGrid,
+    private readonly solver: FluidSolver,
     private readonly maxBytes: number = 64 * 1024 * 1024,
   ) {}
 
@@ -31,26 +33,36 @@ export class FluidHistory {
   }
 
   /** 操作開始直前の状態を保存し、新しい操作分岐としてRedoを破棄する。 */
-  public checkpoint(): void {
+  public checkpoint(): Promise<void> {
     this.clearStack(this.redoStack);
-    this.push(this.undoStack, this.capture());
-    this.trimToBudget();
+    // GPU版では呼び出した瞬間にcopyコマンドを投入し、その後の筆入力と切り離す。
+    const generation = this.generation;
+    const snapshot = this.capture();
+    this.pendingCheckpoints = this.pendingCheckpoints.then(async () => {
+      const captured = await snapshot;
+      if (generation !== this.generation) return;
+      this.push(this.undoStack, captured);
+      this.trimToBudget();
+    });
+    return this.pendingCheckpoints;
   }
 
-  public undo(): boolean {
+  public async undo(): Promise<boolean> {
+    await this.pendingCheckpoints;
     const target = this.undoStack.pop();
     if (!target) return false;
     this.storedBytes -= target.byteLength;
-    this.push(this.redoStack, this.capture());
+    this.push(this.redoStack, await this.capture());
     this.restore(target);
     return true;
   }
 
-  public redo(): boolean {
+  public async redo(): Promise<boolean> {
+    await this.pendingCheckpoints;
     const target = this.redoStack.pop();
     if (!target) return false;
     this.storedBytes -= target.byteLength;
-    this.push(this.undoStack, this.capture());
+    this.push(this.undoStack, await this.capture());
     this.restore(target);
     return true;
   }
@@ -59,10 +71,14 @@ export class FluidHistory {
     this.undoStack.length = 0;
     this.redoStack.length = 0;
     this.storedBytes = 0;
+    this.pendingCheckpoints = Promise.resolve();
+    this.generation++;
   }
 
-  private capture(): FluidSnapshot {
-    const { gw, gh, N, w, u, v, p, d } = this.grid;
+  private async capture(): Promise<FluidSnapshot> {
+    const readback = this.solver.readback();
+    if (readback) await readback;
+    const { gw, gh, N, w, u, v, p, d } = this.solver.grid;
     return {
       width: gw,
       height: gh,
@@ -76,21 +92,23 @@ export class FluidHistory {
   }
 
   private restore(snapshot: FluidSnapshot): void {
-    if (snapshot.width !== this.grid.gw || snapshot.height !== this.grid.gh) {
+    const grid = this.solver.grid;
+    if (snapshot.width !== grid.gw || snapshot.height !== grid.gh) {
       this.clear();
       throw new Error('異なる画面サイズの履歴は復元できません');
     }
 
-    this.grid.w.set(snapshot.water);
-    this.grid.u.set(snapshot.velocityX);
-    this.grid.v.set(snapshot.velocityY);
+    grid.w.set(snapshot.water);
+    grid.u.set(snapshot.velocityX);
+    grid.v.set(snapshot.velocityY);
     for (let c = 0; c < 3; c++) {
       const index = c as ColorIndex;
-      this.grid.p[index].set(snapshot.mobilePigment[index]);
-      this.grid.d[index].set(snapshot.fixedPigment[index]);
-      this.grid.p2[index].set(snapshot.mobilePigment[index]);
+      grid.p[index].set(snapshot.mobilePigment[index]);
+      grid.d[index].set(snapshot.fixedPigment[index]);
+      grid.p2[index].set(snapshot.mobilePigment[index]);
     }
-    this.grid.w2.set(snapshot.water);
+    grid.w2.set(snapshot.water);
+    this.solver.uploadFromGrid();
   }
 
   private push(stack: FluidSnapshot[], snapshot: FluidSnapshot): void {

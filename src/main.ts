@@ -32,13 +32,18 @@ void (async () => {
   let renderDpr = Math.min(deviceDpr, quality.maxRenderDpr);
 
   const grid = new FluidGrid(W, H, quality.cellSize);
-  const solver = new FluidSolver(grid);
   const paperRenderer = new PaperRenderer(paper);
-  // WebGPU は色計算と格子補間を GPU に委譲する。利用できない環境では 2D 描画を継続する。
-  const inkRenderer = (await WebGpuInkRenderer.create(inkCv)) ?? new InkRenderer(inkCv);
+  const gpuInkRenderer = await WebGpuInkRenderer.create(inkCv);
+  const gpuSolver = gpuInkRenderer?.createSolver(grid) ?? null;
+  const solver: FluidSolver = gpuSolver ?? new FluidSolver(grid);
+  const cpuInkRenderer = gpuInkRenderer ? null : new InkRenderer(inkCv);
 
-  const renderAll = (): void => inkRenderer.render(grid, W, H);
-  const history = new FluidHistory(grid);
+  // GPU時は流体storage bufferを直接描画し、フレームごとのCPU readbackを避ける。
+  const renderAll = (): void => {
+    if (gpuInkRenderer && gpuSolver) gpuInkRenderer.render(gpuSolver, W, H);
+    else cpuInkRenderer?.render(grid, W, H);
+  };
+  const history = new FluidHistory(solver);
   const undoButton = document.getElementById('undoButton') as HTMLButtonElement | null;
   const redoButton = document.getElementById('redoButton') as HTMLButtonElement | null;
 
@@ -47,8 +52,9 @@ void (async () => {
     if (redoButton) redoButton.disabled = !history.canRedo;
   };
   const checkpointHistory = (): void => {
-    history.checkpoint();
+    const checkpoint = history.checkpoint();
     updateHistoryButtons();
+    void checkpoint.then(updateHistoryButtons);
   };
 
   const inputController = new InputController(
@@ -59,24 +65,24 @@ void (async () => {
     checkpointHistory,
   );
   const rinseController = new RinseController(
-    grid,
+    solver,
     reduceMotion,
     renderAll,
     checkpointHistory,
   );
 
-  const restoreHistory = (direction: 'undo' | 'redo'): void => {
+  const restoreHistory = async (direction: 'undo' | 'redo'): Promise<void> => {
     if (inputController.down) return;
     rinseController.rinsing = 0;
-    const restored = direction === 'undo' ? history.undo() : history.redo();
+    const restored = direction === 'undo' ? await history.undo() : await history.redo();
     if (!restored) return;
     solver.wet = grid.w.some(value => value > CAP) ? 1 : 0;
     renderAll();
     updateHistoryButtons();
   };
 
-  undoButton?.addEventListener('click', () => restoreHistory('undo'));
-  redoButton?.addEventListener('click', () => restoreHistory('redo'));
+  undoButton?.addEventListener('click', () => void restoreHistory('undo'));
+  redoButton?.addEventListener('click', () => void restoreHistory('redo'));
   window.addEventListener('keydown', (event: KeyboardEvent) => {
     const target = event.target;
     if (
@@ -88,25 +94,30 @@ void (async () => {
     ) return;
 
     event.preventDefault();
-    restoreHistory(event.shiftKey ? 'redo' : 'undo');
+    void restoreHistory(event.shiftKey ? 'redo' : 'undo');
   });
 
   function resizeInkSurface(): void {
     if (!inkCv) return;
     inkCv.width = W * renderDpr;
     inkCv.height = H * renderDpr;
-    inkCv.getContext('2d')?.setTransform(renderDpr, 0, 0, renderDpr, 0, 0);
-    inkRenderer.initSmoothing();
+    if (cpuInkRenderer) {
+      inkCv.getContext('2d')?.setTransform(renderDpr, 0, 0, renderDpr, 0, 0);
+      cpuInkRenderer.initSmoothing();
+    } else {
+      gpuInkRenderer?.initSmoothing();
+    }
   }
 
   function setupCanvas(): void {
     if (!paper) return;
     W = window.innerWidth;
     H = window.innerHeight;
-    grid.resize(W, H);
+    solver.resize(W, H);
     history.clear();
     updateHistoryButtons();
-    inkRenderer.resize(grid.gw, grid.gh);
+    if (gpuInkRenderer) gpuInkRenderer.resize(grid.gw, grid.gh);
+    else cpuInkRenderer?.resize(grid.gw, grid.gh);
 
     paper.width = W * deviceDpr;
     paper.height = H * deviceDpr;
@@ -121,7 +132,9 @@ void (async () => {
   // WebGPU の表示キャンバスは画面提示後に内容が破棄される場合がある。
   // カード生成時だけ現在のグリッドを Canvas 2D へ再描画し、確実に読み出せる画像を渡す。
   let exportInkRenderer: InkRenderer | null = null;
-  const getExportInkCanvas = (): HTMLCanvasElement => {
+  const getExportInkCanvas = async (): Promise<HTMLCanvasElement> => {
+    const readback = solver.readback();
+    if (readback) await readback;
     if (!exportInkRenderer) {
       exportInkRenderer = new InkRenderer(document.createElement('canvas'));
     }
@@ -163,7 +176,7 @@ void (async () => {
       const active = solver.wet > 0 || rinseController.rinsing > 0 || inputController.down;
       const startedAt = performance.now();
       inputController.updateHold();
-      for (let s = 0; s < SUB; s++) solver.simStep();
+      solver.runSteps(SUB);
       solver.advect();
       rinseController.step();
 
