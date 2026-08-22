@@ -87,6 +87,8 @@ WebGPU が使えない環境では、既存の `ImageData` を再利用する Ca
 
 - [docs/design.md](docs/design.md) — システム設計書。物理モデル・描画パイプライン・UI 設計の詳細。
 - [docs/add-design.md](docs/add-design.md) — 拡張設計方針。PNG カード書き出し、洋の絵の具への顔料モデル一般化、WebGL 移行の検討。
+- [docs/exhibition-todo.md](docs/exhibition-todo.md) — 技育博2026に向けた展示体験の実装TODOと本番前チェックリスト。
+- [docs/exhibition-spec.md](docs/exhibition-spec.md) — 展示モード、Cloudflare保存基盤、保持期限、ギャラリー公開方針の確定仕様。
 
 ## 動作環境
 
