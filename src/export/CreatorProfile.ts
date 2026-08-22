@@ -14,16 +14,33 @@ export const EMPTY_PROFILE: CreatorProfile = {
   showName: false,
 };
 
+export interface CreatorProfileRepository {
+  load(): CreatorProfile;
+  save(profile: CreatorProfile): void;
+  clear(): void;
+}
+
+function normalizeProfile(value: unknown): CreatorProfile {
+  if (typeof value !== 'object' || value === null) return { ...EMPTY_PROFILE };
+  const source = value as Partial<Record<keyof CreatorProfile, unknown>>;
+
+  return {
+    displayName:
+      typeof source.displayName === 'string' ? source.displayName.slice(0, 24) : '',
+    showName: source.showName === true,
+  };
+}
+
 /**
  * localStorage への保存・読み出しを担う。
  * プライベートブラウジング等で localStorage が使えない場合も落とさない。
  */
-export class CreatorProfileStore {
+export class CreatorProfileStore implements CreatorProfileRepository {
   public load(): CreatorProfile {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return { ...EMPTY_PROFILE };
-      return this.normalize(JSON.parse(raw));
+      return normalizeProfile(JSON.parse(raw));
     } catch {
       return { ...EMPTY_PROFILE };
     }
@@ -31,7 +48,7 @@ export class CreatorProfileStore {
 
   public save(profile: CreatorProfile): void {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.normalize(profile)));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeProfile(profile)));
     } catch {
       // 保存できなくても体験は継続させる
     }
@@ -45,15 +62,22 @@ export class CreatorProfileStore {
     }
   }
 
-  private normalize(value: unknown): CreatorProfile {
-    if (typeof value !== 'object' || value === null) return { ...EMPTY_PROFILE };
-    const source = value as Partial<Record<keyof CreatorProfile, unknown>>;
+}
 
-    return {
-      displayName:
-        typeof source.displayName === 'string' ? source.displayName.slice(0, 24) : '',
-      showName: source.showName === true,
-    };
+/** 展示端末向け。プロフィールを現在のページメモリ内だけに保持する。 */
+export class SessionCreatorProfileStore implements CreatorProfileRepository {
+  private profile: CreatorProfile = { ...EMPTY_PROFILE };
+
+  public load(): CreatorProfile {
+    return { ...this.profile };
+  }
+
+  public save(profile: CreatorProfile): void {
+    this.profile = normalizeProfile(profile);
+  }
+
+  public clear(): void {
+    this.profile = { ...EMPTY_PROFILE };
   }
 }
 

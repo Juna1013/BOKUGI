@@ -3,6 +3,7 @@ import {
   CreatorProfileStore,
   hasPublishableProfile,
   type CreatorProfile,
+  type CreatorProfileRepository,
 } from './CreatorProfile.ts';
 
 const CARD_WIDTH = 1080;
@@ -12,8 +13,6 @@ const CARD_TITLE = '墨戯';
 const SLIDE_DURATION_MS = 420;
 
 export class ShareCardController {
-  private readonly store = new CreatorProfileStore();
-
   private readonly openButton: HTMLButtonElement;
   private readonly dialog: HTMLDialogElement;
   private readonly closeButton: HTMLButtonElement;
@@ -40,7 +39,10 @@ export class ShareCardController {
   private closeTimer: ReturnType<typeof setTimeout> | undefined;
   private cropTimer: ReturnType<typeof setTimeout> | undefined;
 
-  constructor(private readonly exporter: CardExporter) {
+  constructor(
+    private readonly exporter: CardExporter,
+    private readonly store: CreatorProfileRepository = new CreatorProfileStore(),
+  ) {
     this.openButton = this.require<HTMLButtonElement>('shareCardButton');
     this.dialog = this.require<HTMLDialogElement>('shareDialog');
     this.closeButton = this.require<HTMLButtonElement>('shareDialogClose');
@@ -110,7 +112,7 @@ export class ShareCardController {
       void this.generateCard();
     });
 
-    window.addEventListener('pagehide', () => this.resetSession());
+    window.addEventListener('pagehide', () => this.releaseCardSession());
   }
 
   private applyProfileToForm(): void {
@@ -334,6 +336,12 @@ export class ShareCardController {
       this.closeTimer = undefined;
     }
     if (this.dialog.open) this.dialog.close();
-    else this.releaseCardSession();
+    this.releaseCardSession();
+    this.store.clear();
+    this.profile = this.store.load();
+    this.applyProfileToForm();
+    this.cropX.value = '0.5';
+    this.cropY.value = '0.5';
+    this.setStatus('');
   }
 }

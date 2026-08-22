@@ -8,6 +8,10 @@ import { InputController } from './interaction/InputController.ts';
 import { RinseController } from './interaction/RinseController.ts';
 import { CardExporter } from './export/CardExporter.ts';
 import { ShareCardController } from './export/ShareCardController.ts';
+import {
+  CreatorProfileStore,
+  SessionCreatorProfileStore,
+} from './export/CreatorProfile.ts';
 import { FluidHistory } from './history/FluidHistory.ts';
 import { FrameBudgetMonitor } from './quality/FrameBudgetMonitor.ts';
 import { selectQuality } from './quality/QualityPolicy.ts';
@@ -20,6 +24,19 @@ void (async () => {
 
   if (!paper || !inkCv) {
     throw new Error('Canvas elements (#paper, #inkLayer) not found in DOM.');
+  }
+
+  const exhibitionMode = new URLSearchParams(window.location.search).get('mode') === 'exhibition';
+  document.documentElement.dataset['mode'] = exhibitionMode ? 'exhibition' : 'standard';
+
+  if (exhibitionMode) {
+    const creatorName = document.getElementById('creatorName') as HTMLInputElement | null;
+    const creatorProfileNote = document.getElementById('creatorProfileNote');
+    creatorName?.setAttribute('autocomplete', 'off');
+    if (creatorProfileNote) {
+      creatorProfileNote.textContent =
+        '作者名はこの展示セッション中だけ保持され、次の作品を始めると消去されます。';
+    }
   }
 
   const deviceDpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -153,7 +170,10 @@ void (async () => {
   };
 
   const cardExporter = new CardExporter(paper, getExportInkCanvas);
-  new ShareCardController(cardExporter);
+  const profileStore = exhibitionMode
+    ? new SessionCreatorProfileStore()
+    : new CreatorProfileStore();
+  new ShareCardController(cardExporter, profileStore);
 
   const frameBudget = new FrameBudgetMonitor(
     renderDpr,
