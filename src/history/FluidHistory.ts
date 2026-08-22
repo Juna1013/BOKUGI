@@ -1,9 +1,11 @@
 import type { FluidSolver } from '../physics/FluidSolver.ts';
+import type { FluidContentRect } from '../physics/FluidGrid.ts';
 import type { ColorIndex } from '../types/physics.ts';
 
 interface FluidSnapshot {
   width: number;
   height: number;
+  contentRect: FluidContentRect;
   water: Float32Array;
   velocityX: Float32Array;
   velocityY: Float32Array;
@@ -43,31 +45,39 @@ export class FluidHistory {
     // GPU版では呼び出した瞬間にcopyコマンドを投入し、その後の筆入力と切り離す。
     const generation = this.generation;
     const snapshot = this.capture();
-    this.pendingCheckpoints = this.pendingCheckpoints.then(async () => {
+    // 前のcheckpoint待ち中にreadbackが失敗してもunhandled rejectionにしない。
+    void snapshot.catch(() => undefined);
+    const checkpoint = this.pendingCheckpoints.then(async () => {
       const captured = await snapshot;
       if (generation !== this.generation) return;
       this.push(this.undoStack, captured);
       this.trimToBudget();
     });
-    return this.pendingCheckpoints;
+    // 呼び出し元へは失敗を返す一方、内部tailは回復させて次のcheckpointを継続可能にする。
+    this.pendingCheckpoints = checkpoint.catch(() => undefined);
+    return checkpoint;
   }
 
   public async undo(): Promise<boolean> {
     await this.pendingCheckpoints;
-    const target = this.undoStack.pop();
+    const target = this.undoStack.at(-1);
     if (!target) return false;
+    const current = await this.capture();
+    this.undoStack.pop();
     this.storedBytes -= target.byteLength;
-    this.push(this.redoStack, await this.capture());
+    this.push(this.redoStack, current);
     this.restore(target);
     return true;
   }
 
   public async redo(): Promise<boolean> {
     await this.pendingCheckpoints;
-    const target = this.redoStack.pop();
+    const target = this.redoStack.at(-1);
     if (!target) return false;
+    const current = await this.capture();
+    this.redoStack.pop();
     this.storedBytes -= target.byteLength;
-    this.push(this.undoStack, await this.capture());
+    this.push(this.undoStack, current);
     this.restore(target);
     return true;
   }
@@ -81,12 +91,21 @@ export class FluidHistory {
   }
 
   private async capture(): Promise<FluidSnapshot> {
+    const grid = this.solver.grid;
+    const width = grid.gw;
+    const height = grid.gh;
+    // GPU待機中に始まる筆入力で作品領域だけが先に広がらないよう、先に固定する。
+    const contentRect = grid.getContentRect();
     const readback = this.solver.readback();
     if (readback) await readback;
-    const { gw, gh, N, w, u, v, p, d } = this.solver.grid;
+    if (grid !== this.solver.grid || width !== grid.gw || height !== grid.gh) {
+      throw new Error('履歴の取得中に物理格子が変更されました');
+    }
+    const { N, w, u, v, p, d } = grid;
     return {
-      width: gw,
-      height: gh,
+      width,
+      height,
+      contentRect,
       water: w.slice(),
       velocityX: u.slice(),
       velocityY: v.slice(),
@@ -113,6 +132,7 @@ export class FluidHistory {
       grid.p2[index].set(snapshot.mobilePigment[index]);
     }
     grid.w2.set(snapshot.water);
+    grid.restoreContentRect(snapshot.contentRect);
     this.solver.uploadFromGrid();
   }
 

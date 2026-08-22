@@ -333,6 +333,7 @@ export class WebGpuFluidSolver extends FluidSolver {
     radius: number,
     curColor: ColorIndex,
   ): void {
+    this.grid.includeArea(cx, cy, radius * this.grid.CS);
     this.queueOperation([0, cx / this.grid.CS, cy / this.grid.CS, radius, waterAmount, pigmentAmount, curColor, 0, 0, 0, 0, 0]);
     this.activeSteps = Math.max(this.activeSteps, 24_000);
     this.wet = 1;
@@ -349,12 +350,14 @@ export class WebGpuFluidSolver extends FluidSolver {
   }
 
   public override rinseStep(t: number, sweepFrames: number, totalFrames: number): void {
+    this.grid.includeViewport();
     this.queueOperation([3, t, sweepFrames, totalFrames, 0, 0, 0, 0, 0, 0, 0, 0]);
     this.activeSteps = Math.max(this.activeSteps, 24_000);
     this.wet = 1;
   }
 
   public override clearAll(): void {
+    this.grid.includeViewport();
     this.pendingOperations.length = 0;
     this.queueOperation([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     this.flushOperations();
@@ -390,10 +393,19 @@ export class WebGpuFluidSolver extends FluidSolver {
     const encoder = this.device.createCommandEncoder();
     encoder.copyBufferToBuffer(this.stateBuffer, 0, staging, 0, this.stateByteLength);
     this.device.queue.submit([encoder.finish()]);
-    await staging.mapAsync(GPU_MAP_MODE_READ);
-    const copy = staging.getMappedRange().slice(0);
-    staging.unmap();
-    staging.destroy();
+    let mapped = false;
+    let copy: ArrayBuffer;
+    try {
+      await staging.mapAsync(GPU_MAP_MODE_READ);
+      mapped = true;
+      copy = staging.getMappedRange().slice(0);
+    } finally {
+      try {
+        if (mapped) staging.unmap();
+      } finally {
+        staging.destroy();
+      }
+    }
     if (width === this.grid.gw && height === this.grid.gh) this.unpackState(new Float32Array(copy));
   }
 

@@ -2,15 +2,27 @@ import { CS, AMB } from '../config.ts';
 import { makeNoise } from './Noise.ts';
 import type { ColorIndex, GridAreaCallback } from '../types/physics.ts';
 
+export interface FluidContentRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface FluidGridState {
   viewportWidth: number;
   viewportHeight: number;
   cellSize: number;
   columns: number;
   rows: number;
+  contentRect: FluidContentRect;
   water: Float32Array;
   velocityX: Float32Array;
   velocityY: Float32Array;
+  ambientVelocityX: Float32Array;
+  ambientVelocityY: Float32Array;
+  permeability: Float32Array;
+  grain: Float32Array;
   mobilePigment: [Float32Array, Float32Array, Float32Array];
   fixedPigment: [Float32Array, Float32Array, Float32Array];
 }
@@ -22,6 +34,7 @@ export class FluidGrid {
   public gw!: number;
   public gh!: number;
   public N!: number;
+  private contentRect!: FluidContentRect;
 
   public w!: Float32Array;
   public w2!: Float32Array;
@@ -47,6 +60,7 @@ export class FluidGrid {
     this.gw = Math.ceil(W / this.CS);
     this.gh = Math.ceil(H / this.CS);
     this.N = this.gw * this.gh;
+    this.resetContentRect();
 
     this.w = new Float32Array(this.N);
     this.w2 = new Float32Array(this.N);
@@ -113,6 +127,49 @@ export class FluidGrid {
       this.p[c as ColorIndex].fill(0);
       this.d[c as ColorIndex].fill(0);
     }
+    this.resetContentRect();
+  }
+
+  public getContentRect(): FluidContentRect {
+    return { ...this.contentRect };
+  }
+
+  public restoreContentRect(rect: FluidContentRect): void {
+    const x = Math.max(0, Math.min(this.W, rect.x));
+    const y = Math.max(0, Math.min(this.H, rect.y));
+    const right = Math.max(x, Math.min(this.W, rect.x + rect.width));
+    const bottom = Math.max(y, Math.min(this.H, rect.y + rect.height));
+    this.contentRect = {
+      x,
+      y,
+      width: Math.max(this.CS, right - x),
+      height: Math.max(this.CS, bottom - y),
+    };
+  }
+
+  public includeArea(cx: number, cy: number, radius: number): void {
+    const left = Math.max(0, cx - radius);
+    const top = Math.max(0, cy - radius);
+    const right = Math.min(this.W, cx + radius);
+    const bottom = Math.min(this.H, cy + radius);
+    const currentRight = this.contentRect.x + this.contentRect.width;
+    const currentBottom = this.contentRect.y + this.contentRect.height;
+    const x = Math.min(this.contentRect.x, left);
+    const y = Math.min(this.contentRect.y, top);
+    this.contentRect = {
+      x,
+      y,
+      width: Math.max(currentRight, right) - x,
+      height: Math.max(currentBottom, bottom) - y,
+    };
+  }
+
+  public includeViewport(): void {
+    this.resetContentRect();
+  }
+
+  private resetContentRect(): void {
+    this.contentRect = { x: 0, y: 0, width: this.W, height: this.H };
   }
 
   /** 現在の動的な流体状態を、格子の寿命から切り離して保持する。 */
@@ -123,9 +180,14 @@ export class FluidGrid {
       cellSize: this.CS,
       columns: this.gw,
       rows: this.gh,
+      contentRect: this.getContentRect(),
       water: this.w.slice(),
       velocityX: this.u.slice(),
       velocityY: this.v.slice(),
+      ambientVelocityX: this.ambU.slice(),
+      ambientVelocityY: this.ambV.slice(),
+      permeability: this.perm.slice(),
+      grain: this.grain.slice(),
       mobilePigment: [this.p[0].slice(), this.p[1].slice(), this.p[2].slice()],
       fixedPigment: [this.d[0].slice(), this.d[1].slice(), this.d[2].slice()],
     };
@@ -144,17 +206,18 @@ export class FluidGrid {
       state.rows <= 0
     ) return;
 
-    const scale = Math.min(
-      this.W / state.viewportWidth,
-      this.H / state.viewportHeight,
-    );
-    const offsetX = (this.W - state.viewportWidth * scale) / 2;
-    const offsetY = (this.H - state.viewportHeight * scale) / 2;
+    const sourceRect = state.contentRect;
+    if (sourceRect.width <= 0 || sourceRect.height <= 0) return;
+    const scale = Math.min(this.W / sourceRect.width, this.H / sourceRect.height);
+    const fittedWidth = sourceRect.width * scale;
+    const fittedHeight = sourceRect.height * scale;
+    const offsetX = (this.W - fittedWidth) / 2;
+    const offsetY = (this.H - fittedHeight) / 2;
 
     for (let y = 0; y < this.gh; y++) {
       const targetY = (y + 0.5) * this.CS;
-      const sourceY = (targetY - offsetY) / scale;
-      if (sourceY < 0 || sourceY > state.viewportHeight) continue;
+      const sourceY = sourceRect.y + (targetY - offsetY) / scale;
+      if (targetY < offsetY || targetY > offsetY + fittedHeight) continue;
 
       const gridY = Math.max(
         0,
@@ -166,8 +229,8 @@ export class FluidGrid {
 
       for (let x = 0; x < this.gw; x++) {
         const targetX = (x + 0.5) * this.CS;
-        const sourceX = (targetX - offsetX) / scale;
-        if (sourceX < 0 || sourceX > state.viewportWidth) continue;
+        const sourceX = sourceRect.x + (targetX - offsetX) / scale;
+        if (targetX < offsetX || targetX > offsetX + fittedWidth) continue;
 
         const gridX = Math.max(
           0,
@@ -209,6 +272,42 @@ export class FluidGrid {
           fx,
           fy,
         ) * scale;
+        this.ambU[targetIndex] = this.sampleBilinear(
+          state.ambientVelocityX,
+          topLeft,
+          topRight,
+          bottomLeft,
+          bottomRight,
+          fx,
+          fy,
+        ) * scale;
+        this.ambV[targetIndex] = this.sampleBilinear(
+          state.ambientVelocityY,
+          topLeft,
+          topRight,
+          bottomLeft,
+          bottomRight,
+          fx,
+          fy,
+        ) * scale;
+        this.perm[targetIndex] = this.sampleBilinear(
+          state.permeability,
+          topLeft,
+          topRight,
+          bottomLeft,
+          bottomRight,
+          fx,
+          fy,
+        );
+        this.grain[targetIndex] = this.sampleBilinear(
+          state.grain,
+          topLeft,
+          topRight,
+          bottomLeft,
+          bottomRight,
+          fx,
+          fy,
+        );
 
         for (let color = 0; color < 3; color++) {
           const index = color as ColorIndex;
@@ -221,14 +320,11 @@ export class FluidGrid {
             fx,
             fy,
           );
-          this.d[index][targetIndex] = this.sampleBilinear(
+          this.d[index][targetIndex] = this.sampleNearest(
             state.fixedPigment[index],
-            topLeft,
-            topRight,
-            bottomLeft,
-            bottomRight,
-            fx,
-            fy,
+            gridX,
+            gridY,
+            state.columns,
           );
         }
       }
@@ -239,6 +335,12 @@ export class FluidGrid {
       const index = color as ColorIndex;
       this.p2[index].set(this.p[index]);
     }
+    this.contentRect = {
+      x: offsetX,
+      y: offsetY,
+      width: fittedWidth,
+      height: fittedHeight,
+    };
   }
 
   private sampleBilinear(
@@ -254,5 +356,15 @@ export class FluidGrid {
     const bottom =
       (source[bottomLeft] ?? 0) * (1 - fx) + (source[bottomRight] ?? 0) * fx;
     return top * (1 - fy) + bottom * fy;
+  }
+
+  /** 定着済み顔料は再補間のたびに輪郭がぼけないよう最近傍で移す。 */
+  private sampleNearest(
+    source: Float32Array,
+    x: number,
+    y: number,
+    columns: number,
+  ): number {
+    return source[Math.round(y) * columns + Math.round(x)] ?? 0;
   }
 }

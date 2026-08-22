@@ -2,6 +2,13 @@ import { DIFF, CAP, EVAP, VDAMP } from '../config.ts';
 import type { FluidGrid } from './FluidGrid.ts';
 import type { ColorIndex } from '../types/physics.ts';
 
+export interface PreservingResizeOptions {
+  /** GPU readback中に要求が古くなった場合、格子を書き換える直前で中止する。 */
+  shouldApply?: () => boolean;
+  /** 旧格子の履歴など、再サンプリング前に解放できるメモリを破棄する。 */
+  beforeResize?: () => void;
+}
+
 export class FluidSolver {
   public grid: FluidGrid;
   public wet: number = 0;
@@ -20,11 +27,18 @@ export class FluidSolver {
   }
 
   /** CPU/GPUの正本を同期し、作品を失わずに新しい表示領域へ移す。 */
-  public async resizePreservingState(width: number, height: number): Promise<boolean> {
+  public async resizePreservingState(
+    width: number,
+    height: number,
+    options: PreservingResizeOptions = {},
+  ): Promise<boolean> {
     if (width === this.grid.W && height === this.grid.H) return false;
 
     const readback = this.readback();
     if (readback) await readback;
+    if (options.shouldApply && !options.shouldApply()) return false;
+
+    options.beforeResize?.();
     const state = this.grid.captureState();
 
     this.resize(width, height);
@@ -193,6 +207,7 @@ export class FluidSolver {
     radius: number,
     curColor: ColorIndex,
   ): void {
+    this.grid.includeArea(cx, cy, radius * this.grid.CS);
     const r2 = radius * radius;
     const pc = this.grid.p[curColor];
 
@@ -217,6 +232,7 @@ export class FluidSolver {
 
   /** 水洗いの1フレーム。GPU版でも同じ呼び出し境界を使用する。 */
   public rinseStep(t: number, sweepFrames: number, totalFrames: number): void {
+    this.grid.includeViewport();
     const { gh, gw, w, v, u, ambU, d, p, N } = this.grid;
     const frontRow = Math.min(gh, ((gh * t / sweepFrames) | 0) + 2);
     const pouring = t < totalFrames - 100;

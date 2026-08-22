@@ -43,6 +43,8 @@ void (async () => {
 
   const deviceDpr = Math.min(window.devicePixelRatio || 1, 2);
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const touchViewport =
+    navigator.maxTouchPoints > 0 || matchMedia('(pointer: coarse)').matches;
 
   let W = window.innerWidth;
   let H = window.innerHeight;
@@ -74,7 +76,10 @@ void (async () => {
   const checkpointHistory = (): void => {
     const checkpoint = history.checkpoint();
     updateHistoryButtons();
-    void checkpoint.then(updateHistoryButtons);
+    void checkpoint.then(updateHistoryButtons, (error: unknown) => {
+      console.error('Undo履歴を保存できませんでした。', error);
+      updateHistoryButtons();
+    });
   };
 
   const inputController = new InputController(
@@ -210,39 +215,42 @@ void (async () => {
   window.addEventListener('resize', () => {
     const nextWidth = Math.max(1, Math.round(window.innerWidth));
     const nextHeight = Math.max(1, Math.round(window.innerHeight));
-    const editingCreatorName =
-      shareDialog?.open === true &&
-      document.activeElement === creatorName &&
-      nextWidth === W;
-
-    // ソフトウェアキーボードは表示領域の高さだけを変えるため、作品格子へ反映しない。
-    if (editingCreatorName) {
-      if (resizeT !== undefined) clearTimeout(resizeT);
-      resizeT = undefined;
-      resizeRevision++;
-      return;
-    }
-    if (nextWidth === W && nextHeight === H) return;
-
-    if (resizeT !== undefined) clearTimeout(resizeT);
+    const widthChanged = nextWidth !== W;
+    const heightChanged = nextHeight !== H;
     const revision = ++resizeRevision;
+    if (resizeT !== undefined) clearTimeout(resizeT);
+    resizeT = undefined;
+
+    // タッチ端末の高さだけの変化は、キーボードやブラウザUIによるvisual viewport変更。
+    // ダイアログ中も同じ扱いにし、blur/closeとのイベント順に依存させない。
+    const transientHeightResize =
+      !widthChanged &&
+      heightChanged &&
+      (touchViewport || shareDialog?.open === true);
+    if (transientHeightResize || (!widthChanged && !heightChanged)) return;
+
     resizeT = setTimeout(() => {
       resizeT = undefined;
       void simulationCoordinator.runExclusive(async () => {
         if (revision !== resizeRevision) return;
         await history.settle();
+        if (revision !== resizeRevision) return;
         rinseController.rinsing = 0;
-        const resized = await solver.resizePreservingState(nextWidth, nextHeight);
+        const resized = await solver.resizePreservingState(nextWidth, nextHeight, {
+          shouldApply: () => revision === resizeRevision,
+          // 実リサイズ後に復元できない旧格子の履歴を、ピークメモリ増加前に解放する。
+          beforeResize: () => history.clear(),
+        });
         if (!resized) return;
 
         W = nextWidth;
         H = nextHeight;
-        // 履歴スナップショットは旧格子に属するため、実リサイズ時だけ破棄する。
-        history.clear();
         resizeRendererGrid();
         resizePresentationSurfaces();
       }).catch((error: unknown) => {
         console.error('作品を保持したまま表示領域を変更できませんでした。', error);
+        // 格子とGPU資源の更新途中で失敗した可能性があるため、不整合状態を継続しない。
+        window.location.reload();
       });
     }, 200);
   });

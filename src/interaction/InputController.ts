@@ -85,19 +85,20 @@ export class InputController {
         this.inkCv.setPointerCapture(e.pointerId);
       } catch (_) {}
 
-      this.lastX = e.clientX;
-      this.lastY = e.clientY;
+      const point = this.simulationPoint(e);
+      this.lastX = point.x;
+      this.lastY = point.y;
       this.lastT = e.timeStamp;
       this.lastPressure = this.pointerPressure(e);
 
       hint?.classList.add('gone');
       this.depositStamp(
-        e.clientX,
-        e.clientY,
+        point.x,
+        point.y,
         1.1 + this.lastPressure,
         2.5 + this.lastPressure * 4,
       );
-      this.solver.swirl(e.clientX, e.clientY);
+      this.solver.swirl(point.x, point.y);
 
       if (this.reduceMotion) {
         this.solver.runSteps(260);
@@ -109,7 +110,8 @@ export class InputController {
       if (!this.enabled || !this.down || e.pointerId !== this.activePointerId) return;
       const coalesced = e.getCoalescedEvents();
       const samples = coalesced.length > 0 ? coalesced : [e];
-      for (const sample of samples) this.processPointerSample(sample);
+      const rect = this.inkCv.getBoundingClientRect();
+      for (const sample of samples) this.processPointerSample(sample, rect);
     });
 
     const up = (e: PointerEvent) => {
@@ -150,9 +152,10 @@ export class InputController {
     } catch (_) {}
   }
 
-  private processPointerSample(e: PointerEvent): void {
-    const dx = e.clientX - this.lastX;
-    const dy = e.clientY - this.lastY;
+  private processPointerSample(e: PointerEvent, rect: DOMRect): void {
+    const point = this.simulationPoint(e, rect);
+    const dx = point.x - this.lastX;
+    const dy = point.y - this.lastY;
     const dist = Math.hypot(dx, dy);
     if (dist <= this.solver.grid.CS) return;
 
@@ -163,8 +166,8 @@ export class InputController {
     const radiusScale = CS / this.solver.grid.CS;
     const velocityRadius = 4.5 + pressure * 3;
     this.solver.addVel(
-      e.clientX,
-      e.clientY,
+      point.x,
+      point.y,
       (dx / dist) * gain * preset.momentum,
       (dy / dist) * gain * preset.momentum,
       velocityRadius * preset.radius * radiusScale,
@@ -183,8 +186,8 @@ export class InputController {
       );
     }
 
-    this.lastX = e.clientX;
-    this.lastY = e.clientY;
+    this.lastX = point.x;
+    this.lastY = point.y;
     this.lastT = e.timeStamp;
     this.lastPressure = pressure;
   }
@@ -204,5 +207,18 @@ export class InputController {
   private pointerPressure(e: PointerEvent): number {
     if (e.pointerType !== 'pen') return 0.5;
     return Math.max(0.05, Math.min(e.pressure, 1));
+  }
+
+  /** CSS上の表示拡縮があっても、指位置を物理格子の座標へ正しく戻す。 */
+  private simulationPoint(
+    e: PointerEvent,
+    rect: DOMRect = this.inkCv.getBoundingClientRect(),
+  ): { x: number; y: number } {
+    const scaleX = rect.width > 0 ? this.solver.grid.W / rect.width : 1;
+    const scaleY = rect.height > 0 ? this.solver.grid.H / rect.height : 1;
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY,
+    };
   }
 }
