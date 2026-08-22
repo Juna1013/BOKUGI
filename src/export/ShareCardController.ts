@@ -34,6 +34,8 @@ export class ShareCardController {
   private profile: CreatorProfile;
   private generating = false;
   private generationPending = false;
+  private generationRevision = 0;
+  private sessionRevision = 0;
   private closing = false;
   private closeTimer: ReturnType<typeof setTimeout> | undefined;
   private cropTimer: ReturnType<typeof setTimeout> | undefined;
@@ -83,7 +85,7 @@ export class ShareCardController {
     this.dialog.addEventListener('close', () => {
       this.dialog.classList.remove('is-open', 'is-closing');
       this.closing = false;
-      this.releasePreview();
+      this.releaseCardSession();
     });
 
     this.shareButton.addEventListener('click', () => void this.sharePreparedFile());
@@ -108,7 +110,7 @@ export class ShareCardController {
       void this.generateCard();
     });
 
-    window.addEventListener('pagehide', () => this.releasePreview());
+    window.addEventListener('pagehide', () => this.resetSession());
   }
 
   private applyProfileToForm(): void {
@@ -147,7 +149,10 @@ export class ShareCardController {
     this.dialog.classList.remove('is-closing');
 
     if (!this.dialog.open) {
-      this.artwork = await this.exporter.captureArtwork();
+      const sessionRevision = ++this.sessionRevision;
+      const artwork = await this.exporter.captureArtwork();
+      if (sessionRevision !== this.sessionRevision) return;
+      this.artwork = artwork;
       this.dialog.showModal();
       // 初期位置（画面左外）を1フレーム描かせてからスライドインさせる
       requestAnimationFrame(() => this.dialog.classList.add('is-open'));
@@ -172,11 +177,14 @@ export class ShareCardController {
 
   /** プレビューを開いた段階で File まで作り切る。 */
   private async generateCard(): Promise<void> {
+    const generationRevision = ++this.generationRevision;
     if (this.generating) {
       this.generationPending = true;
       return;
     }
-    if (!this.artwork) return;
+    const artwork = this.artwork;
+    if (!artwork) return;
+    const sessionRevision = this.sessionRevision;
     this.generating = true;
 
     this.setBusy(true);
@@ -193,12 +201,15 @@ export class ShareCardController {
           y: Number(this.cropY.value),
         },
         profile: this.publishableProfile(),
-      }, this.artwork);
+      }, artwork);
 
-      this.releasePreview();
-      this.preparedFile = file;
-      this.previewUrl = URL.createObjectURL(file);
-      this.preview.src = this.previewUrl;
+      if (
+        sessionRevision !== this.sessionRevision ||
+        generationRevision !== this.generationRevision ||
+        !this.dialog.open
+      ) return;
+
+      this.replacePreparedFile(file);
 
       this.setBusy(false);
       this.setStatus(
@@ -207,6 +218,10 @@ export class ShareCardController {
           : 'この環境では共有シートを使えません。PNGで保存してください。',
       );
     } catch (error) {
+      if (
+        sessionRevision !== this.sessionRevision ||
+        generationRevision !== this.generationRevision
+      ) return;
       this.preparedFile = null;
       this.setBusy(true);
       this.setStatus(
@@ -280,19 +295,45 @@ export class ShareCardController {
     this.status.textContent = message;
   }
 
-  /** プレビューに使った Object URL を解放する。 */
-  private releasePreview(): void {
-    if (this.cropTimer !== undefined) {
-      clearTimeout(this.cropTimer);
-      this.cropTimer = undefined;
-    }
-    this.artwork = null;
-    this.generationPending = false;
+  /** 現在の生成済みファイルだけを差し替え、作品スナップショットは維持する。 */
+  private replacePreparedFile(file: File): void {
+    this.releasePreparedFile();
+    this.preparedFile = file;
+    this.previewUrl = URL.createObjectURL(file);
+    this.preview.src = this.previewUrl;
+  }
+
+  /** プレビュー用Object URLと生成済みFileを破棄する。 */
+  private releasePreparedFile(): void {
     if (this.previewUrl) {
       URL.revokeObjectURL(this.previewUrl);
       this.previewUrl = null;
     }
     this.preview.removeAttribute('src');
     this.preparedFile = null;
+  }
+
+  /** 共有ダイアログ内だけで保持する作品・生成結果をまとめて破棄する。 */
+  private releaseCardSession(): void {
+    if (this.cropTimer !== undefined) {
+      clearTimeout(this.cropTimer);
+      this.cropTimer = undefined;
+    }
+    this.sessionRevision++;
+    this.generationRevision++;
+    this.artwork = null;
+    this.generationPending = false;
+    this.releasePreparedFile();
+    this.setBusy(true);
+  }
+
+  /** 展示セッション終了時に、非同期生成結果を無効化して一時データを破棄する。 */
+  public resetSession(): void {
+    if (this.closeTimer !== undefined) {
+      clearTimeout(this.closeTimer);
+      this.closeTimer = undefined;
+    }
+    if (this.dialog.open) this.dialog.close();
+    else this.releaseCardSession();
   }
 }
