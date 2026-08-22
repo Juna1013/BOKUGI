@@ -2,6 +2,19 @@ import { CS, AMB } from '../config.ts';
 import { makeNoise } from './Noise.ts';
 import type { ColorIndex, GridAreaCallback } from '../types/physics.ts';
 
+export interface FluidGridState {
+  viewportWidth: number;
+  viewportHeight: number;
+  cellSize: number;
+  columns: number;
+  rows: number;
+  water: Float32Array;
+  velocityX: Float32Array;
+  velocityY: Float32Array;
+  mobilePigment: [Float32Array, Float32Array, Float32Array];
+  fixedPigment: [Float32Array, Float32Array, Float32Array];
+}
+
 export class FluidGrid {
   public CS: number;
   public W!: number;
@@ -100,5 +113,146 @@ export class FluidGrid {
       this.p[c as ColorIndex].fill(0);
       this.d[c as ColorIndex].fill(0);
     }
+  }
+
+  /** 現在の動的な流体状態を、格子の寿命から切り離して保持する。 */
+  public captureState(): FluidGridState {
+    return {
+      viewportWidth: this.W,
+      viewportHeight: this.H,
+      cellSize: this.CS,
+      columns: this.gw,
+      rows: this.gh,
+      water: this.w.slice(),
+      velocityX: this.u.slice(),
+      velocityY: this.v.slice(),
+      mobilePigment: [this.p[0].slice(), this.p[1].slice(), this.p[2].slice()],
+      fixedPigment: [this.d[0].slice(), this.d[1].slice(), this.d[2].slice()],
+    };
+  }
+
+  /**
+   * 旧状態の縦横比を保ったまま中央へ収め、新しい格子へ再サンプリングする。
+   * 余白は白紙のままにするため、回転時にも作品全体が切れない。
+   */
+  public restoreFittedState(state: FluidGridState): void {
+    if (
+      state.viewportWidth <= 0 ||
+      state.viewportHeight <= 0 ||
+      state.cellSize <= 0 ||
+      state.columns <= 0 ||
+      state.rows <= 0
+    ) return;
+
+    const scale = Math.min(
+      this.W / state.viewportWidth,
+      this.H / state.viewportHeight,
+    );
+    const offsetX = (this.W - state.viewportWidth * scale) / 2;
+    const offsetY = (this.H - state.viewportHeight * scale) / 2;
+
+    for (let y = 0; y < this.gh; y++) {
+      const targetY = (y + 0.5) * this.CS;
+      const sourceY = (targetY - offsetY) / scale;
+      if (sourceY < 0 || sourceY > state.viewportHeight) continue;
+
+      const gridY = Math.max(
+        0,
+        Math.min(state.rows - 1, sourceY / state.cellSize - 0.5),
+      );
+      const y0 = Math.floor(gridY);
+      const y1 = Math.min(state.rows - 1, y0 + 1);
+      const fy = gridY - y0;
+
+      for (let x = 0; x < this.gw; x++) {
+        const targetX = (x + 0.5) * this.CS;
+        const sourceX = (targetX - offsetX) / scale;
+        if (sourceX < 0 || sourceX > state.viewportWidth) continue;
+
+        const gridX = Math.max(
+          0,
+          Math.min(state.columns - 1, sourceX / state.cellSize - 0.5),
+        );
+        const x0 = Math.floor(gridX);
+        const x1 = Math.min(state.columns - 1, x0 + 1);
+        const fx = gridX - x0;
+        const targetIndex = y * this.gw + x;
+        const topLeft = y0 * state.columns + x0;
+        const topRight = y0 * state.columns + x1;
+        const bottomLeft = y1 * state.columns + x0;
+        const bottomRight = y1 * state.columns + x1;
+
+        this.w[targetIndex] = this.sampleBilinear(
+          state.water,
+          topLeft,
+          topRight,
+          bottomLeft,
+          bottomRight,
+          fx,
+          fy,
+        );
+        this.u[targetIndex] = this.sampleBilinear(
+          state.velocityX,
+          topLeft,
+          topRight,
+          bottomLeft,
+          bottomRight,
+          fx,
+          fy,
+        ) * scale;
+        this.v[targetIndex] = this.sampleBilinear(
+          state.velocityY,
+          topLeft,
+          topRight,
+          bottomLeft,
+          bottomRight,
+          fx,
+          fy,
+        ) * scale;
+
+        for (let color = 0; color < 3; color++) {
+          const index = color as ColorIndex;
+          this.p[index][targetIndex] = this.sampleBilinear(
+            state.mobilePigment[index],
+            topLeft,
+            topRight,
+            bottomLeft,
+            bottomRight,
+            fx,
+            fy,
+          );
+          this.d[index][targetIndex] = this.sampleBilinear(
+            state.fixedPigment[index],
+            topLeft,
+            topRight,
+            bottomLeft,
+            bottomRight,
+            fx,
+            fy,
+          );
+        }
+      }
+    }
+
+    this.w2.set(this.w);
+    for (let color = 0; color < 3; color++) {
+      const index = color as ColorIndex;
+      this.p2[index].set(this.p[index]);
+    }
+  }
+
+  private sampleBilinear(
+    source: Float32Array,
+    topLeft: number,
+    topRight: number,
+    bottomLeft: number,
+    bottomRight: number,
+    fx: number,
+    fy: number,
+  ): number {
+    const top = (source[topLeft] ?? 0) * (1 - fx) + (source[topRight] ?? 0) * fx;
+    const bottom =
+      (source[bottomLeft] ?? 0) * (1 - fx) + (source[bottomRight] ?? 0) * fx;
+    return top * (1 - fy) + bottom * fy;
   }
 }

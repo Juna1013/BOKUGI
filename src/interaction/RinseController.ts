@@ -7,6 +7,7 @@ export class RinseController {
   public rinsing: number = 0;
   public R_SWEEP: number = 70;
   public R_TOTAL: number = 290;
+  private enabled = true;
 
   constructor(
     solver: FluidSolver,
@@ -19,7 +20,7 @@ export class RinseController {
     this.renderFn = renderFn;
 
     document.getElementById('rinse')?.addEventListener('click', () => {
-      if (this.rinsing) return;
+      if (!this.enabled || this.rinsing) return;
       onRinseStart();
       if (this.reduceMotion) {
         this.solver.clearAll();
@@ -37,5 +38,9 @@ export class RinseController {
       this.solver.clearAll();
       this.rinsing = 0;
     }
+  }
+
+  public setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
   }
 }

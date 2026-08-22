@@ -19,6 +19,21 @@ export class FluidSolver {
     this.wet = 0;
   }
 
+  /** CPU/GPUの正本を同期し、作品を失わずに新しい表示領域へ移す。 */
+  public async resizePreservingState(width: number, height: number): Promise<boolean> {
+    if (width === this.grid.W && height === this.grid.H) return false;
+
+    const readback = this.readback();
+    if (readback) await readback;
+    const state = this.grid.captureState();
+
+    this.resize(width, height);
+    this.grid.restoreFittedState(state);
+    this.wet = this.grid.w.some((water) => water > CAP) ? 1 : 0;
+    this.uploadFromGrid();
+    return true;
+  }
+
   public runSteps(count: number): void {
     for (let step = 0; step < count; step++) this.simStep();
   }

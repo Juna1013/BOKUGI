@@ -32,6 +32,11 @@ export class FluidHistory {
     return this.redoStack.length > 0;
   }
 
+  /** 既に開始済みのGPU readbackと履歴登録が終わるまで待つ。 */
+  public settle(): Promise<void> {
+    return this.pendingCheckpoints;
+  }
+
   /** 操作開始直前の状態を保存し、新しい操作分岐としてRedoを破棄する。 */
   public checkpoint(): Promise<void> {
     this.clearStack(this.redoStack);

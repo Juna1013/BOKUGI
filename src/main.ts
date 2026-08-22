@@ -15,6 +15,7 @@ import {
 import { FluidHistory } from './history/FluidHistory.ts';
 import { FrameBudgetMonitor } from './quality/FrameBudgetMonitor.ts';
 import { selectQuality } from './quality/QualityPolicy.ts';
+import { SimulationCoordinator } from './session/SimulationCoordinator.ts';
 
 void (async () => {
   'use strict';
@@ -29,8 +30,9 @@ void (async () => {
   const exhibitionMode = new URLSearchParams(window.location.search).get('mode') === 'exhibition';
   document.documentElement.dataset['mode'] = exhibitionMode ? 'exhibition' : 'standard';
 
+  const creatorName = document.getElementById('creatorName') as HTMLInputElement | null;
+  const shareDialog = document.getElementById('shareDialog') as HTMLDialogElement | null;
   if (exhibitionMode) {
-    const creatorName = document.getElementById('creatorName') as HTMLInputElement | null;
     const creatorProfileNote = document.getElementById('creatorProfileNote');
     creatorName?.setAttribute('autocomplete', 'off');
     if (creatorProfileNote) {
@@ -63,10 +65,11 @@ void (async () => {
   const history = new FluidHistory(solver);
   const undoButton = document.getElementById('undoButton') as HTMLButtonElement | null;
   const redoButton = document.getElementById('redoButton') as HTMLButtonElement | null;
+  let simulationBusy = false;
 
   const updateHistoryButtons = (): void => {
-    if (undoButton) undoButton.disabled = !history.canUndo;
-    if (redoButton) redoButton.disabled = !history.canRedo;
+    if (undoButton) undoButton.disabled = simulationBusy || !history.canUndo;
+    if (redoButton) redoButton.disabled = simulationBusy || !history.canRedo;
   };
   const checkpointHistory = (): void => {
     const checkpoint = history.checkpoint();
@@ -87,15 +90,29 @@ void (async () => {
     renderAll,
     checkpointHistory,
   );
-
-  const restoreHistory = async (direction: 'undo' | 'redo'): Promise<void> => {
-    if (inputController.down) return;
-    rinseController.rinsing = 0;
-    const restored = direction === 'undo' ? await history.undo() : await history.redo();
-    if (!restored) return;
-    solver.wet = grid.w.some(value => value > CAP) ? 1 : 0;
-    renderAll();
+  const simulationCoordinator = new SimulationCoordinator((busy) => {
+    simulationBusy = busy;
+    inputController.setEnabled(!busy);
+    rinseController.setEnabled(!busy);
     updateHistoryButtons();
+  });
+
+  let historyActionPending = false;
+  const restoreHistory = async (direction: 'undo' | 'redo'): Promise<void> => {
+    if (inputController.down || historyActionPending) return;
+    historyActionPending = true;
+    try {
+      await simulationCoordinator.runExclusive(async () => {
+        rinseController.rinsing = 0;
+        const restored = direction === 'undo' ? await history.undo() : await history.redo();
+        if (!restored) return;
+        solver.wet = grid.w.some(value => value > CAP) ? 1 : 0;
+        renderAll();
+      });
+    } finally {
+      historyActionPending = false;
+      updateHistoryButtons();
+    }
   };
 
   undoButton?.addEventListener('click', () => void restoreHistory('undo'));
@@ -126,16 +143,13 @@ void (async () => {
     }
   }
 
-  function setupCanvas(): void {
-    if (!paper) return;
-    W = window.innerWidth;
-    H = window.innerHeight;
-    solver.resize(W, H);
-    history.clear();
-    updateHistoryButtons();
+  function resizeRendererGrid(): void {
     if (gpuInkRenderer) gpuInkRenderer.resize(grid.gw, grid.gh);
     else cpuInkRenderer?.resize(grid.gw, grid.gh);
+  }
 
+  function resizePresentationSurfaces(): void {
+    if (!paper) return;
     paper.width = W * deviceDpr;
     paper.height = H * deviceDpr;
     paper.getContext('2d')?.setTransform(deviceDpr, 0, 0, deviceDpr, 0, 0);
@@ -144,30 +158,36 @@ void (async () => {
     renderAll();
   }
 
-  setupCanvas();
+  resizeRendererGrid();
+  resizePresentationSurfaces();
 
   // WebGPU の表示キャンバスは画面提示後に内容が破棄される場合がある。
   // カード生成時だけ現在のグリッドを Canvas 2D へ再描画し、確実に読み出せる画像を渡す。
   let exportInkRenderer: InkRenderer | null = null;
-  const getExportInkCanvas = async (): Promise<HTMLCanvasElement> => {
-    const readback = solver.readback();
-    if (readback) await readback;
-    if (!exportInkRenderer) {
-      exportInkRenderer = new InkRenderer(document.createElement('canvas'));
-    }
+  const getExportInkCanvas = (): Promise<HTMLCanvasElement> =>
+    simulationCoordinator.runExclusive(async () => {
+      await history.settle();
+      const readback = solver.readback();
+      if (readback) await readback;
+      if (!exportInkRenderer) {
+        exportInkRenderer = new InkRenderer(document.createElement('canvas'));
+      }
 
-    const exportCanvas = exportInkRenderer.inkCv;
-    if (exportCanvas.width !== paper.width || exportCanvas.height !== paper.height) {
-      exportCanvas.width = paper.width;
-      exportCanvas.height = paper.height;
-      exportInkRenderer.ictx.setTransform(deviceDpr, 0, 0, deviceDpr, 0, 0);
-    }
-    if (exportInkRenderer.gridCv.width !== grid.gw || exportInkRenderer.gridCv.height !== grid.gh) {
-      exportInkRenderer.resize(grid.gw, grid.gh);
-    }
-    exportInkRenderer.render(grid, W, H);
-    return exportCanvas;
-  };
+      const exportCanvas = exportInkRenderer.inkCv;
+      if (exportCanvas.width !== paper.width || exportCanvas.height !== paper.height) {
+        exportCanvas.width = paper.width;
+        exportCanvas.height = paper.height;
+        exportInkRenderer.ictx.setTransform(deviceDpr, 0, 0, deviceDpr, 0, 0);
+      }
+      if (
+        exportInkRenderer.gridCv.width !== grid.gw ||
+        exportInkRenderer.gridCv.height !== grid.gh
+      ) {
+        exportInkRenderer.resize(grid.gw, grid.gh);
+      }
+      exportInkRenderer.render(grid, W, H);
+      return exportCanvas;
+    });
 
   const cardExporter = new CardExporter(paper, getExportInkCanvas);
   const profileStore = exhibitionMode
@@ -186,13 +206,49 @@ void (async () => {
   );
 
   let resizeT: ReturnType<typeof setTimeout> | undefined;
+  let resizeRevision = 0;
   window.addEventListener('resize', () => {
+    const nextWidth = Math.max(1, Math.round(window.innerWidth));
+    const nextHeight = Math.max(1, Math.round(window.innerHeight));
+    const editingCreatorName =
+      shareDialog?.open === true &&
+      document.activeElement === creatorName &&
+      nextWidth === W;
+
+    // ソフトウェアキーボードは表示領域の高さだけを変えるため、作品格子へ反映しない。
+    if (editingCreatorName) {
+      if (resizeT !== undefined) clearTimeout(resizeT);
+      resizeT = undefined;
+      resizeRevision++;
+      return;
+    }
+    if (nextWidth === W && nextHeight === H) return;
+
     if (resizeT !== undefined) clearTimeout(resizeT);
-    resizeT = setTimeout(setupCanvas, 200);
+    const revision = ++resizeRevision;
+    resizeT = setTimeout(() => {
+      resizeT = undefined;
+      void simulationCoordinator.runExclusive(async () => {
+        if (revision !== resizeRevision) return;
+        await history.settle();
+        rinseController.rinsing = 0;
+        const resized = await solver.resizePreservingState(nextWidth, nextHeight);
+        if (!resized) return;
+
+        W = nextWidth;
+        H = nextHeight;
+        // 履歴スナップショットは旧格子に属するため、実リサイズ時だけ破棄する。
+        history.clear();
+        resizeRendererGrid();
+        resizePresentationSurfaces();
+      }).catch((error: unknown) => {
+        console.error('作品を保持したまま表示領域を変更できませんでした。', error);
+      });
+    }, 200);
   });
 
   function loop(): void {
-    if (!reduceMotion) {
+    if (!reduceMotion && !simulationBusy) {
       const active = solver.wet > 0 || rinseController.rinsing > 0 || inputController.down;
       const startedAt = performance.now();
       inputController.updateHold();

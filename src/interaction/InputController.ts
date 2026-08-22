@@ -18,6 +18,7 @@ export class InputController {
   public lastT: number = 0;
   public lastPressure: number = 0.5;
   public holdT: number = 0;
+  private enabled = true;
 
   constructor(
     inkCanvas: HTMLCanvasElement,
@@ -75,7 +76,7 @@ export class InputController {
     const hint = document.getElementById('hint');
 
     this.inkCv.addEventListener('pointerdown', (e: PointerEvent) => {
-      if (this.activePointerId !== null) return;
+      if (!this.enabled || this.activePointerId !== null) return;
       this.onStrokeStart();
       this.activePointerId = e.pointerId;
       this.down = true;
@@ -105,7 +106,7 @@ export class InputController {
     });
 
     this.inkCv.addEventListener('pointermove', (e: PointerEvent) => {
-      if (!this.down || e.pointerId !== this.activePointerId) return;
+      if (!this.enabled || !this.down || e.pointerId !== this.activePointerId) return;
       const coalesced = e.getCoalescedEvents();
       const samples = coalesced.length > 0 ? coalesced : [e];
       for (const sample of samples) this.processPointerSample(sample);
@@ -113,11 +114,7 @@ export class InputController {
 
     const up = (e: PointerEvent) => {
       if (e.pointerId === this.activePointerId) {
-        this.down = false;
-        this.activePointerId = null;
-        try {
-          this.inkCv.releasePointerCapture(e.pointerId);
-        } catch (_) {}
+        this.cancelActivePointer();
       }
     };
 
@@ -134,6 +131,23 @@ export class InputController {
         2.5 + this.lastPressure * 3,
       );
     }
+  }
+
+  /** 状態のreadback・復元中は新しい入力を止め、途中のPointer Captureを解放する。 */
+  public setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+    if (!enabled) this.cancelActivePointer();
+  }
+
+  private cancelActivePointer(): void {
+    const pointerId = this.activePointerId;
+    this.down = false;
+    this.activePointerId = null;
+    this.holdT = 0;
+    if (pointerId === null) return;
+    try {
+      this.inkCv.releasePointerCapture(pointerId);
+    } catch (_) {}
   }
 
   private processPointerSample(e: PointerEvent): void {
