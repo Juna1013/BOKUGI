@@ -33,10 +33,30 @@ npm run dev      # 開発サーバーを起動
 | `npm run build` | 型チェック（`tsc`）後に `dist/` へビルド |
 | `npm run preview` | ビルド結果をローカルで確認 |
 | `npm run check` | 型チェックのみ実行（`tsc --noEmit`） |
+| `npm run preview:worker` | ビルド後、Workers ランタイムでローカル確認 |
+| `npm run deploy` | ビルド後、Cloudflare Workers へデプロイ |
+
+## デプロイ
+
+MVP は **静的サイト**として Cloudflare Workers の Static Assets で配信します。
+サーバーサイドのコード・データベース・API・環境変数はいずれも持ちません。
+すべての処理（物理演算・描画・書き出し）はブラウザ内で完結します。
+
+```bash
+npx wrangler login   # 初回のみ
+npm run deploy
+```
+
+設定は [`wrangler.jsonc`](./wrangler.jsonc) にあります。`dist/` を配信するのみで、
+バインディング（DB・KV・R2 等）は定義していません。将来データベースを追加する際は、
+このファイルにバインディングを追記する形で拡張できます。
+
+なお、作者名の保存（`localStorage`）と作品カードの共有（Web Share API）は
+いずれもブラウザ側の機能で、サーバーへの送信は行いません。
 
 ## ディレクトリ構成
 
-```
+```bash
 index.html                        DOM構造・二層キャンバス・共有ダイアログ
 style.css                         縦書きタイポグラフィ、伝統色、mix-blend-mode による乗算合成
 src/
