@@ -136,7 +136,10 @@ fn advect(@builtin(global_invocation_id) invocation: vec3<u32>) {
       let sampled = sampleState(sourcePosition);
       result.fluid.x = mix(current.fluid.x, sampled.fluid.x, wetness);
       result.fluid.w = mix(current.fluid.w, sampled.fluid.w, wetness);
-      result.pigments.xy = mix(current.pigments.xy, sampled.pigments.xy, wetness);
+      // WGSL は多成分スウィズルへの代入を許さないため、成分ごとに書き込む。
+      let pigments = mix(current.pigments.xy, sampled.pigments.xy, wetness);
+      result.pigments.x = pigments.x;
+      result.pigments.y = pigments.y;
     }
   }
   stateOut[i] = result;
@@ -178,7 +181,8 @@ fn applyOperations(@builtin(global_invocation_id) invocation: vec3<u32>) {
         if (color == 2u) { cell.pigments.y = min(cell.pigments.y + pigment, 1.5); }
       } else if (kind == 1u) {
         let falloff = exp(-distanceSquared / (radius * radius * 0.4));
-        cell.fluid.yz += operation.b.xy * falloff;
+        cell.fluid.y += operation.b.x * falloff;
+        cell.fluid.z += operation.b.y * falloff;
       } else {
         let distance = sqrt(distanceSquared);
         if (distance >= 0.5) {
@@ -200,23 +204,29 @@ fn applyOperations(@builtin(global_invocation_id) invocation: vec3<u32>) {
         let dissolve = min(cell.fluid.x, 1.2) * 0.05;
         let fixedPigment = vec3<f32>(cell.pigments.z, cell.pigments.w, cell.material.x);
         let moved = fixedPigment * dissolve;
-        cell.pigments.zw -= moved.xy;
+        cell.pigments.z -= moved.x;
+        cell.pigments.w -= moved.y;
         cell.material.x -= moved.z;
         cell.fluid.w += moved.x;
-        cell.pigments.xy += moved.yz;
+        cell.pigments.x += moved.y;
+        cell.pigments.y += moved.z;
       }
       if (u32(position.y) + 3u >= operationInfo.size.y) {
         cell.fluid.x *= 0.55;
         cell.fluid.w *= 0.5;
-        cell.pigments.xy *= vec2<f32>(0.5);
-        cell.pigments.zw *= vec2<f32>(0.9);
+        cell.pigments.x *= 0.5;
+        cell.pigments.y *= 0.5;
+        cell.pigments.z *= 0.9;
+        cell.pigments.w *= 0.9;
         cell.material.x *= 0.9;
       }
       if (!pouring) {
         cell.fluid.x *= 0.95;
         cell.fluid.w *= 0.94;
-        cell.pigments.xy *= vec2<f32>(0.94);
-        cell.pigments.zw *= vec2<f32>(0.94);
+        cell.pigments.x *= 0.94;
+        cell.pigments.y *= 0.94;
+        cell.pigments.z *= 0.94;
+        cell.pigments.w *= 0.94;
         cell.material.x *= 0.94;
       }
     } else if (kind == 4u) {
