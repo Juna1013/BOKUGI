@@ -44,36 +44,66 @@ fn vertexMain(@builtin(vertex_index) index: u32) -> VertexOutput {
   return output;
 }
 
-fn cellAt(x: u32, y: u32) -> vec4<f32> {
-  let cell = cells[y * grid.size.x + x];
-  return vec4<f32>(
+// セルの光学密度（Lambert-Beer の指数部）。紙目の係数もここで掛けておく。
+fn densityAt(x: i32, y: i32) -> vec3<f32> {
+  let clamped = clamp(vec2<i32>(x, y), vec2<i32>(0), vec2<i32>(grid.size) - vec2<i32>(1));
+  let cell = cells[u32(clamped.y) * grid.size.x + u32(clamped.x)];
+  let pigment = vec3<f32>(
     cell.pigments.z * 1.15 + cell.fluid.w * 0.55,
     cell.pigments.w * 1.15 + cell.pigments.x * 0.55,
-    cell.material.x * 1.15 + cell.pigments.y * 0.55,
-    cell.fluid.x
+    cell.material.x * 1.15 + cell.pigments.y * 0.55
   );
-}
-
-@fragment
-fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
-  let dimensions = vec2<f32>(grid.size);
-  let position = clamp(input.uv * dimensions - vec2<f32>(0.5), vec2<f32>(0.0), dimensions - vec2<f32>(1.001));
-  let base = vec2<u32>(floor(position));
-  let next = min(base + vec2<u32>(1u), grid.size - vec2<u32>(1u));
-  let fraction = fract(position);
-  let pigmentAndWater = mix(
-    mix(cellAt(base.x, base.y), cellAt(next.x, base.y), fraction.x),
-    mix(cellAt(base.x, next.y), cellAt(next.x, next.y), fraction.x),
-    fraction.y
-  );
-  let grain = cells[base.y * grid.size.x + base.x].paper.x;
-  let pigment = pigmentAndWater.rgb;
   let absorption = vec3<f32>(
     pigment.x * ${ABS[0][0]} + pigment.y * ${ABS[1][0]} + pigment.z * ${ABS[2][0]},
     pigment.x * ${ABS[0][1]} + pigment.y * ${ABS[1][1]} + pigment.z * ${ABS[2][1]},
     pigment.x * ${ABS[0][2]} + pigment.y * ${ABS[1][2]} + pigment.z * ${ABS[2][2]}
   );
-  let color = exp(-(absorption * ${PIGMENT_DENSITY} + vec3<f32>(pigmentAndWater.a * 0.05)) * grain);
+  return (absorption * ${PIGMENT_DENSITY} + vec3<f32>(cell.fluid.x * 0.05)) * cell.paper.x;
+}
+
+// Mitchell–Netravali (B = C = 1/3) の三次補間カーネル。
+// 双線形補間で出るセル境界の折れ目を消しつつ、リンギングをほぼ起こさない。
+fn mitchell(distance: f32) -> f32 {
+  let x = abs(distance);
+  let x2 = x * x;
+  let x3 = x2 * x;
+  if (x < 1.0) {
+    return (7.0 * x3 - 12.0 * x2 + 16.0 / 3.0) / 6.0;
+  }
+  if (x < 2.0) {
+    return (-7.0 / 3.0 * x3 + 12.0 * x2 - 20.0 * x + 32.0 / 3.0) / 6.0;
+  }
+  return 0.0;
+}
+
+fn cubicWeights(fraction: f32) -> vec4<f32> {
+  return vec4<f32>(
+    mitchell(1.0 + fraction),
+    mitchell(fraction),
+    mitchell(1.0 - fraction),
+    mitchell(2.0 - fraction)
+  );
+}
+
+@fragment
+fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
+  let position = input.uv * vec2<f32>(grid.size) - vec2<f32>(0.5);
+  let base = vec2<i32>(floor(position));
+  let fraction = position - vec2<f32>(base);
+  var weightsX = cubicWeights(fraction.x);
+  var weightsY = cubicWeights(fraction.y);
+
+  // 4x4 近傍の光学密度を三次補間する。密度（対数空間）で補間してから
+  // 指数を取るため、濃淡の境界が滑らかにつながる。
+  var density = vec3<f32>(0.0);
+  for (var j = 0; j < 4; j++) {
+    var row = vec3<f32>(0.0);
+    for (var i = 0; i < 4; i++) {
+      row += densityAt(base.x + i - 1, base.y + j - 1) * weightsX[i];
+    }
+    density += row * weightsY[j];
+  }
+  let color = exp(-max(density, vec3<f32>(0.0)));
   return vec4<f32>(color, 1.0);
 }
 `;

@@ -85,7 +85,7 @@
 | `u` / `v` | `Float32Array(N)` | 筆圧・タッチ運動による流速場 $U_{x,y}, V_{x,y}$ |
 | `ambU` / `ambV` | `Float32Array(N)` | 和紙のミクロな高低差・繊維による常時流動（漂い）ベクトル場（Curl Noise生成） |
 | `perm` | `Float32Array(N)` | 和紙の浸透率・毛細血管係数 $P_{x,y}$ （マルチオクターブValue Noise生成） |
-| `grain` | `Float32Array(N)` | 和紙の表面粒子感・粗さ係数 $G_{x,y} \in [0.82, 1.18]$ |
+| `grain` | `Float32Array(N)` | 和紙の表面粒子感・粗さ係数 $G_{x,y} \in [0.88, 1.12]$（格子より粗い2オクターブの Value Noise。セル単位の乱数にすると描画時にモザイク状に見える） |
 | `p[3]` / `p2[3]` | `Array<Float32Array(N)>` | 水中に浮遊する顔料濃度（0: 墨、1: 朱、2: 藍） |
 | `d[3]` | `Array<Float32Array(N)>` | 和紙の繊維に定着・乾燥した顔料濃度（0: 墨、1: 朱、2: 藍） |
 
@@ -147,8 +147,9 @@
    $$\text{absSum}_k = \sum_{c=0}^2 C^{(c)}_i \cdot \text{ABS}_{c, k} \quad (k \in \{R, G, B\})$$
    $$\text{RGB}_k = 255 \cdot \exp\left( - (\text{absSum}_k + \text{sheen}_i) \cdot \text{grain}_i \right)$$
    ここで $\text{sheen}_i = 0.05 \cdot w_i$ は水分の濡れツヤによる減光、$\text{grain}_i$ は紙の粒子むら表現です。
-4. **オフスクリーン描画と拡大適用**:
-   `ImageData` にピクセル値を書き込み、低解像度オフスクリーン Canvas (`gridCv`) に `putImageData` した後、高解像度メイン Canvas (`inkCv`) へ `drawImage` で滑らかに転送拡大します。
+4. **格子から画面への補間**:
+   - **WebGPU**: フラグメントシェーダーで画素ごとに 4×4 近傍セルの光学密度 $(\text{absSum}_k + \text{sheen}_i) \cdot \text{grain}_i$ を Mitchell–Netravali 三次補間（B = C = 1/3）し、その後に $\exp$ を取ります。密度（対数）空間で補間するため濃淡の境界が滑らかにつながり、双線形補間で生じるセル境界の折れ目や、紙目の最近傍読み出しによるブロック状のムラが出ません。
+   - **Canvas 2D フォールバック**: `ImageData` にピクセル値を書き込み、低解像度オフスクリーン Canvas (`gridCv`) に `putImageData` した後、高解像度メイン Canvas (`inkCv`) へ `imageSmoothingQuality = 'high'` の `drawImage` で転送拡大します。
 
 ---
 

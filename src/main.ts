@@ -48,13 +48,14 @@ void (async () => {
 
   let W = window.innerWidth;
   let H = window.innerHeight;
-  const webGpuAvailable = 'gpu' in navigator;
-  const quality = selectQuality(W, H, webGpuAvailable);
+  const paperRenderer = new PaperRenderer(paper);
+  // 品質判定は GPU レンダラーが実際に作れたかで行う。navigator.gpu があっても
+  // adapter が取れず CPU に落ちる環境で、高負荷設定を抱えないため。
+  const gpuInkRenderer = await WebGpuInkRenderer.create(inkCv);
+  const quality = selectQuality(W, H, gpuInkRenderer !== null);
   let renderDpr = Math.min(deviceDpr, quality.maxRenderDpr);
 
   const grid = new FluidGrid(W, H, quality.cellSize);
-  const paperRenderer = new PaperRenderer(paper);
-  const gpuInkRenderer = await WebGpuInkRenderer.create(inkCv);
   const gpuSolver = gpuInkRenderer?.createSolver(grid) ?? null;
   const solver: FluidSolver = gpuSolver ?? new FluidSolver(grid);
   const cpuInkRenderer = gpuInkRenderer ? null : new InkRenderer(inkCv);
