@@ -1,4 +1,4 @@
-import { CS, AMB } from '../config.ts';
+import { CS, AMB, FIBER_ANISO } from '../config.ts';
 import { makeNoise } from './Noise.ts';
 import type { ColorIndex, GridAreaCallback } from '../types/physics.ts';
 
@@ -23,6 +23,8 @@ export interface FluidGridState {
   ambientVelocityY: Float32Array;
   permeability: Float32Array;
   grain: Float32Array;
+  fiberCos2: Float32Array;
+  fiberSin2: Float32Array;
   mobilePigment: [Float32Array, Float32Array, Float32Array];
   fixedPigment: [Float32Array, Float32Array, Float32Array];
 }
@@ -44,6 +46,12 @@ export class FluidGrid {
   public ambV!: Float32Array;
   public perm!: Float32Array;
   public grain!: Float32Array;
+  /**
+   * 繊維方向の異方性。繊維の向き θ と強さ A を (A·cos2θ, A·sin2θ) で持つ。
+   * 2θ にしてあるのは繊維が向きのない軸（θ と θ+π が同じ）だから。
+   */
+  public fiberCos2!: Float32Array;
+  public fiberSin2!: Float32Array;
 
   public p!: [Float32Array, Float32Array, Float32Array];
   public p2!: [Float32Array, Float32Array, Float32Array];
@@ -70,6 +78,8 @@ export class FluidGrid {
     this.ambV = new Float32Array(this.N);
     this.perm = new Float32Array(this.N);
     this.grain = new Float32Array(this.N);
+    this.fiberCos2 = new Float32Array(this.N);
+    this.fiberSin2 = new Float32Array(this.N);
 
     this.p = [new Float32Array(this.N), new Float32Array(this.N), new Float32Array(this.N)];
     this.p2 = [new Float32Array(this.N), new Float32Array(this.N), new Float32Array(this.N)];
@@ -79,7 +89,7 @@ export class FluidGrid {
   }
 
   private buildFields(): void {
-    const { gw, gh, perm, grain, ambU, ambV } = this;
+    const { gw, gh, perm, grain, ambU, ambV, fiberCos2, fiberSin2 } = this;
     const n1 = makeNoise(24, 60), s1x = 24 / gw, s1y = 60 / gh;
     const n2 = makeNoise(70, 160), s2x = 70 / gw, s2y = 160 / gh;
     const n3 = makeNoise(200, 400), s3x = 200 / gw, s3y = 400 / gh;
@@ -89,12 +99,24 @@ export class FluidGrid {
     const grainFine = this.grainOctave(2.5);
     const grainCoarse = this.grainOctave(7);
 
+    // 繊維の向きは格子より粗いノイズで滑らかに変え、強さは別のノイズで
+    // 「よく揃った束」と「ほぐれた所」を作る。向きが細かく変わりすぎると
+    // 滲み足が伸びる前に散ってしまう。
+    const fiberAngleCoarse = this.grainOctave(22);
+    const fiberAngleFine = this.grainOctave(7);
+    const fiberStrength = this.grainOctave(12);
+
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
         const i = y * gw + x;
         const val = n1(x * s1x, y * s1y) * 0.45 + n2(x * s2x, y * s2y) * 0.35 + n3(x * s3x, y * s3y) * 0.20;
         perm[i] = Math.min(1.4, Math.pow(val, 1.6) * 1.9 + 0.12);
         grain[i] = 0.88 + (grainFine(x, y) * 0.55 + grainCoarse(x, y) * 0.45) * 0.24;
+
+        const angle = Math.PI * (fiberAngleCoarse(x, y) * 0.7 + fiberAngleFine(x, y) * 0.3);
+        const strength = FIBER_ANISO * (0.35 + 0.65 * fiberStrength(x, y));
+        fiberCos2[i] = strength * Math.cos(2 * angle);
+        fiberSin2[i] = strength * Math.sin(2 * angle);
       }
     }
 
@@ -202,6 +224,8 @@ export class FluidGrid {
       ambientVelocityY: this.ambV.slice(),
       permeability: this.perm.slice(),
       grain: this.grain.slice(),
+      fiberCos2: this.fiberCos2.slice(),
+      fiberSin2: this.fiberSin2.slice(),
       mobilePigment: [this.p[0].slice(), this.p[1].slice(), this.p[2].slice()],
       fixedPigment: [this.d[0].slice(), this.d[1].slice(), this.d[2].slice()],
     };
@@ -315,6 +339,24 @@ export class FluidGrid {
         );
         this.grain[targetIndex] = this.sampleBilinear(
           state.grain,
+          topLeft,
+          topRight,
+          bottomLeft,
+          bottomRight,
+          fx,
+          fy,
+        );
+        this.fiberCos2[targetIndex] = this.sampleBilinear(
+          state.fiberCos2,
+          topLeft,
+          topRight,
+          bottomLeft,
+          bottomRight,
+          fx,
+          fy,
+        );
+        this.fiberSin2[targetIndex] = this.sampleBilinear(
+          state.fiberSin2,
           topLeft,
           topRight,
           bottomLeft,

@@ -1,4 +1,14 @@
-import { CAP, DIFF, EVAP, VDAMP } from '../config.ts';
+import {
+  CAP,
+  DIFF,
+  EVAP,
+  VDAMP,
+  DEPOSIT_WET,
+  DEPOSIT_DRY,
+  EDGE_DEPOSIT,
+  EDGE_WATER_FLOOR,
+  EDGE_RATE_MAX,
+} from '../config.ts';
 import {
   GPU_BUFFER_USAGE_COPY_DST,
   GPU_BUFFER_USAGE_COPY_SRC,
@@ -25,7 +35,7 @@ struct FluidCell {
   fluid: vec4<f32>,       // water, velocity x, velocity y, pigment 0
   pigments: vec4<f32>,   // pigment 1, pigment 2, fixed 0, fixed 1
   material: vec4<f32>,   // fixed 2, permeability, ambient x, ambient y
-  paper: vec4<f32>,      // grain, unused...
+  paper: vec4<f32>,      // grain, fiber A·cos2θ, fiber A·sin2θ, unused
 };
 
 struct SimInfo {
@@ -49,16 +59,37 @@ fn randomFactor(sourceIndex: u32, targetIndex: u32) -> f32 {
   return 0.6 + fract(sin(seed) * 43758.5453) * 0.8;
 }
 
+// 繊維方向による拡散の重み。CPU 版 fiberWeight と同じ式・同じ近傍順序。
+// 軸方向 4 つは 2/3、斜め 4 つは 1/3 を基準にし、繊維に沿う向きを 1+A、直交を 1-A 倍する。
+fn fiberWeight(neighbor: u32, destination: FluidCell) -> f32 {
+  let cos2 = destination.paper.y;
+  let sin2 = destination.paper.z;
+  if (neighbor < 2u) { return (2.0 / 3.0) * (1.0 + cos2); }
+  if (neighbor < 4u) { return (2.0 / 3.0) * (1.0 - cos2); }
+  if (neighbor < 6u) { return (1.0 / 3.0) * (1.0 + sin2); }
+  return (1.0 / 3.0) * (1.0 - sin2);
+}
+
 // 戻り値は water, pigment0, pigment1, pigment2。
-fn transfer(source: FluidCell, destination: FluidCell, sourceIndex: u32, targetIndex: u32) -> vec4<f32> {
+fn transfer(source: FluidCell, destination: FluidCell, sourceIndex: u32, targetIndex: u32, weight: f32) -> vec4<f32> {
   let water = source.fluid.x;
   let difference = water - destination.fluid.x;
   if (water <= ${CAP} || difference <= 0.0) {
     return vec4<f32>(0.0);
   }
-  let amount = min(${DIFF} * destination.material.y * difference * randomFactor(sourceIndex, targetIndex), water * 0.18);
+  let amount = min(
+    ${DIFF} * destination.material.y * difference * randomFactor(sourceIndex, targetIndex) * weight,
+    water * 0.18 * weight
+  );
   let ratio = amount / water;
   return vec4<f32>(amount, source.fluid.w * ratio, source.pigments.x * ratio, source.pigments.y * ratio);
+}
+
+// 顔料の定着率。CPU 版 depositionRate と同じ式。
+fn depositionRate(water: f32, gradient: f32) -> f32 {
+  let dry = 1.0 - min(water * 6.0, 1.0);
+  let edge = dry * gradient / (water + ${EDGE_WATER_FLOOR});
+  return min(${DEPOSIT_WET} + ${DEPOSIT_DRY} * dry * dry + ${EDGE_DEPOSIT} * edge, ${EDGE_RATE_MAX});
 }
 
 @compute @workgroup_size(${WORKGROUP_SIZE})
@@ -71,11 +102,15 @@ fn diffuseAndSettle(@builtin(global_invocation_id) invocation: vec3<u32>) {
   let y = i / info.size.x;
   let current = stateIn[i];
   var transported = vec4<f32>(current.fluid.x, current.fluid.w, current.pigments.x, current.pigments.y);
-  let offsets = array<vec2<i32>, 4>(
-    vec2<i32>(-1, 0), vec2<i32>(1, 0), vec2<i32>(0, -1), vec2<i32>(0, 1)
+  // CPU 版 NEIGHBOR_DX / NEIGHBOR_DY と同じ順序。先頭 4 つが軸方向。
+  let offsets = array<vec2<i32>, 8>(
+    vec2<i32>(-1, 0), vec2<i32>(1, 0), vec2<i32>(0, -1), vec2<i32>(0, 1),
+    vec2<i32>(1, 1), vec2<i32>(-1, -1), vec2<i32>(1, -1), vec2<i32>(-1, 1)
   );
+  // 軸方向の隣の水分。端は自分の値で代用し、中央差分で勾配を取る。
+  var axialWater = vec4<f32>(current.fluid.x);
 
-  for (var n = 0u; n < 4u; n++) {
+  for (var n = 0u; n < 8u; n++) {
     let neighborPosition = vec2<i32>(i32(x), i32(y)) + offsets[n];
     if (
       neighborPosition.x < 0 || neighborPosition.y < 0 ||
@@ -83,15 +118,18 @@ fn diffuseAndSettle(@builtin(global_invocation_id) invocation: vec3<u32>) {
     ) { continue; }
     let j = u32(neighborPosition.y) * info.size.x + u32(neighborPosition.x);
     let neighbor = stateIn[j];
-    transported += transfer(neighbor, current, j, i) - transfer(current, neighbor, i, j);
+    if (n < 4u) { axialWater[n] = neighbor.fluid.x; }
+    transported += transfer(neighbor, current, j, i, fiberWeight(n, current))
+      - transfer(current, neighbor, i, j, fiberWeight(n, neighbor));
   }
 
   var result = current;
   let water = select(transported.x * ${EVAP}, 0.0, transported.x * ${EVAP} < 0.0008);
-  let dry = 1.0 - min(water * 6.0, 1.0);
-  let depositionRate = 0.003 + 0.05 * dry * dry;
-  let mobile = max(transported.yzw, vec3<f32>(0.0));
-  let deposited = mobile * depositionRate;
+  let gradient = length(vec2<f32>(axialWater.y - axialWater.x, axialWater.w - axialWater.z) * 0.5);
+  var mobile = max(transported.yzw, vec3<f32>(0.0));
+  // 見えない量になった浮遊顔料は 0 にする（CPU 版 PIGMENT_EPSILON と同じ）。
+  if (mobile.x + mobile.y + mobile.z < 0.00001) { mobile = vec3<f32>(0.0); }
+  let deposited = mobile * depositionRate(water, gradient);
 
   result.fluid = vec4<f32>(water, current.fluid.y * ${VDAMP}, current.fluid.z * ${VDAMP}, mobile.x - deposited.x);
   result.pigments = vec4<f32>(
@@ -525,7 +563,7 @@ export class WebGpuFluidSolver extends FluidSolver {
   }
 
   private packState(): Float32Array {
-    const { N, w, u, v, p, d, perm, ambU, ambV, grain } = this.grid;
+    const { N, w, u, v, p, d, perm, ambU, ambV, grain, fiberCos2, fiberSin2 } = this.grid;
     const data = new Float32Array(N * FLOATS_PER_CELL);
     for (let i = 0; i < N; i++) {
       const offset = i * FLOATS_PER_CELL;
@@ -542,6 +580,8 @@ export class WebGpuFluidSolver extends FluidSolver {
       data[offset + 10] = ambU[i] ?? 0;
       data[offset + 11] = ambV[i] ?? 0;
       data[offset + 12] = grain[i] ?? 1;
+      data[offset + 13] = fiberCos2[i] ?? 0;
+      data[offset + 14] = fiberSin2[i] ?? 0;
     }
     return data;
   }

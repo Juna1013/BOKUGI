@@ -1,4 +1,14 @@
-import { DIFF, CAP, EVAP, VDAMP } from '../config.ts';
+import {
+  DIFF,
+  CAP,
+  EVAP,
+  VDAMP,
+  DEPOSIT_WET,
+  DEPOSIT_DRY,
+  EDGE_DEPOSIT,
+  EDGE_WATER_FLOOR,
+  EDGE_RATE_MAX,
+} from '../config.ts';
 import type { FluidGrid } from './FluidGrid.ts';
 import type { ColorIndex } from '../types/physics.ts';
 
@@ -7,6 +17,51 @@ export interface PreservingResizeOptions {
   shouldApply?: () => boolean;
   /** 旧格子の履歴など、再サンプリング前に解放できるメモリを破棄する。 */
   beforeResize?: () => void;
+}
+
+/**
+ * 8近傍の並び。軸方向 4 つ、斜め 4 つ。GPU 版の offsets と同じ順序にすること。
+ * 斜めは距離が √2 あるので重みを半分にし、合計が従来の 4 近傍と同じ 4 になるよう正規化する。
+ */
+const NEIGHBOR_DX: readonly number[] = [-1, 1, 0, 0, 1, -1, 1, -1];
+const NEIGHBOR_DY: readonly number[] = [0, 0, -1, 1, 1, -1, -1, 1];
+/** 浮遊顔料がこれを下回ったら 0 とみなす。表示上 1/255 階調にも届かない量。 */
+const PIGMENT_EPSILON = 1e-5;
+const AXIAL_WEIGHT = 2 / 3;
+const DIAGONAL_WEIGHT = 1 / 3;
+
+/**
+ * 繊維方向による拡散の重み。繊維の軸 θ と近傍方向 φ の差で 1 + A·cos(2(φ−θ)) を返す。
+ * 軸方向は cos2θ、斜め方向は sin2θ で決まり、8方向の合計は θ によらず 4 のまま。
+ */
+export function fiberWeight(neighbor: number, cos2: number, sin2: number): number {
+  if (neighbor < 2) return AXIAL_WEIGHT * (1 + cos2);   // (±1, 0)
+  if (neighbor < 4) return AXIAL_WEIGHT * (1 - cos2);   // (0, ±1)
+  if (neighbor < 6) return DIAGONAL_WEIGHT * (1 + sin2); // (1, 1), (-1, -1)
+  return DIAGONAL_WEIGHT * (1 - sin2);                   // (1, -1), (-1, 1)
+}
+
+/** 中央差分による水分勾配の大きさ。端は片側差分で代用する。 */
+export function waterGradient(w: Float32Array, i: number, gw: number, gh: number): number {
+  const x = i % gw, y = (i - x) / gw;
+  const left = w[x > 0 ? i - 1 : i] ?? 0;
+  const right = w[x < gw - 1 ? i + 1 : i] ?? 0;
+  const up = w[y > 0 ? i - gw : i] ?? 0;
+  const down = w[y < gh - 1 ? i + gw : i] ?? 0;
+  const gx = (right - left) * 0.5;
+  const gy = (down - up) * 0.5;
+  return Math.sqrt(gx * gx + gy * gy);
+}
+
+/**
+ * 顔料の定着率。乾くほど定着が進む従来項に、濡れ際で高まる縁取り項を足す。
+ * 濡れ際は水分に対して勾配が大きく、そこへ毛細管流で運ばれた顔料が留まって縁が濃くなる。
+ * 芯は勾配がほぼ 0 なので顔料が浮いたまま外へ運ばれ、乾いた後は縁より淡くなる。
+ */
+export function depositionRate(water: number, gradient: number): number {
+  const dry = 1 - Math.min(water * 6, 1);
+  const edge = dry * gradient / (water + EDGE_WATER_FLOOR);
+  return Math.min(DEPOSIT_WET + DEPOSIT_DRY * dry * dry + EDGE_DEPOSIT * edge, EDGE_RATE_MAX);
 }
 
 export class FluidSolver {
@@ -67,7 +122,7 @@ export class FluidSolver {
 
   // 1. 毛細管拡散・蒸発・顔料定着
   public simStep(): void {
-    const { gw, gh, N, w, w2, u, v, perm, p, p2, d } = this.grid;
+    const { gw, gh, N, w, w2, u, v, perm, p, p2, d, fiberCos2, fiberSin2 } = this.grid;
     w2.set(w);
     p2[0].set(p[0]);
     p2[1].set(p[1]);
@@ -76,28 +131,33 @@ export class FluidSolver {
 
     for (let y = 0; y < gh; y++) {
       const row = y * gw;
+      const hasUp = y > 0, hasDown = y < gh - 1;
       for (let x = 0; x < gw; x++) {
         const i = row + x;
         const wi = w[i] ?? 0;
         if (wi <= CAP) continue;
         this.wet++;
         const inv = 1 / wi;
+        const hasLeft = x > 0, hasRight = x < gw - 1;
 
-        // 4近傍への毛細管拡散。上下左右で処理は同一のため、隣接セルの
-        // 添字だけを差し替えて回す。
-        for (let n = 0; n < 4; n++) {
-          let j: number;
-          if (n === 0) { if (x <= 0) continue; j = i - 1; }
-          else if (n === 1) { if (x >= gw - 1) continue; j = i + 1; }
-          else if (n === 2) { if (y <= 0) continue; j = i - gw; }
-          else { if (y >= gh - 1) continue; j = i + gw; }
+        // 8近傍への毛細管拡散。重みは NEIGHBOR_DX / NEIGHBOR_DY と同じ順で、
+        // 繊維に沿う向きほど大きくなる（fiberWeight 参照）。
+        for (let n = 0; n < 8; n++) {
+          const dx = NEIGHBOR_DX[n]!, dy = NEIGHBOR_DY[n]!;
+          if ((dx < 0 && !hasLeft) || (dx > 0 && !hasRight)) continue;
+          if ((dy < 0 && !hasUp) || (dy > 0 && !hasDown)) continue;
+          const j = i + dx + dy * gw;
 
           const wj = w[j] ?? 0;
           const dw = wi - wj;
           if (dw <= 0) continue;
 
+          const weight = fiberWeight(n, fiberCos2[j] ?? 0, fiberSin2[j] ?? 0);
           const permJ = perm[j] ?? 1;
-          const f = Math.min(DIFF * permJ * dw * (0.6 + Math.random() * 0.8), wi * 0.18);
+          const f = Math.min(
+            DIFF * permJ * dw * (0.6 + Math.random() * 0.8) * weight,
+            wi * 0.18 * weight,
+          );
           w2[j]! += f;
           w2[i]! -= f;
 
@@ -118,20 +178,26 @@ export class FluidSolver {
     for (let i = 0; i < N; i++) {
       let wi = (w2[i] ?? 0) * EVAP;
       if (wi < 0.0008) wi = 0;
-      const dry = 1 - Math.min(wi * 6, 1);
-      const rate = 0.003 + 0.05 * dry * dry;
-      for (let c = 0; c < 3; c++) {
-        const p2c = p2[c as ColorIndex];
-        const dc = d[c as ColorIndex];
-        const pc = p[c as ColorIndex];
-
-        const pv = p2c[i] ?? 0;
-        if (pv > 0) {
-          const dep = pv * rate;
-          dc[i] = (dc[i] ?? 0) + dep;
-          pc[i] = pv - dep;
-        } else {
-          pc[i] = pv;
+      const p0 = p2[0][i] ?? 0, p1 = p2[1][i] ?? 0, p2v = p2[2][i] ?? 0;
+      if (p0 + p1 + p2v < PIGMENT_EPSILON) {
+        // 定着は指数減衰で 0 に届かないため、見えない量になったら打ち切って
+        // 以後のセルを勾配計算の対象から外す。
+        p[0][i] = 0;
+        p[1][i] = 0;
+        p[2][i] = 0;
+      } else {
+        const rate = depositionRate(wi, waterGradient(w, i, gw, gh));
+        for (let c = 0; c < 3; c++) {
+          const dc = d[c as ColorIndex];
+          const pc = p[c as ColorIndex];
+          const pv = p2[c as ColorIndex][i] ?? 0;
+          if (pv > 0) {
+            const dep = pv * rate;
+            dc[i] = (dc[i] ?? 0) + dep;
+            pc[i] = pv - dep;
+          } else {
+            pc[i] = pv;
+          }
         }
       }
       w[i] = wi;
