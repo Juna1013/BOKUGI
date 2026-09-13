@@ -7,6 +7,7 @@
 ## 特徴
 
 - **物理ベースのにじみ表現** — 水分・速度・顔料濃度の各フィールドを持つ格子上で、毛細管拡散・セミラグランジュ移流・蒸発／定着を毎フレーム解きます。拡散は紙の繊維方向に沿った異方性 8 近傍で、滲み足が繊維に沿って伸びます。乾きかけた濡れ際では定着率が上がり、縁が芯より濃くなる縁取りが生まれます。
+- **画素解像度の紙の表現（WebGPU）** — 格子は 3 px ですが、フラグメントシェーダーが画面解像度で紙の粒状感（乾くほど顔料が紙の谷に沈んで粒立つ）、繊維に沿った毛羽（滲みの縁が繊維方向にほつれる）、濡れた墨の艶（水面の傾きからの鏡面反射）を加えます。和紙の繊維も物理場の繊維方向に揃えて描くので、目に見える繊維と滲み足の向きが一致します。
 - **減法混色による発色** — Lambert-Beer 則に基づき、顔料ごとの吸収係数から透過光を計算。重ね塗りが実際の墨のように濃くなります。
 - **伝統色パレット** — 墨・朱・藍の3色。皿に出した絵の具を模した丸型ボタンで切り替えます。
 - **筆致の追従** — Pointer Capture でキャンバス外まで確実に追従。素早いドラッグには線補間と流速付与、単発タップには微小な渦流、長押しには継続的な墨の投入を行います。
@@ -17,7 +18,7 @@
 
 - TypeScript 5（`strict` に加え `noUncheckedIndexedAccess` / `noUnusedLocals` などを有効化）
 - Vite 5
-- WebGPU（顔料の光学計算・格子補間）を優先利用し、Canvas 2D API に自動フォールバック
+- WebGPU を優先利用（物理はコンピュートシェーダー、描画は格子→テクスチャ→画素シェーディング）し、Canvas 2D API に自動フォールバック
 - 実行時依存は [`motion`](https://motion.dev)（UI 演出のみ。物理・描画は自前）
 - 書体は Google Fonts の筆文字 [Yuji Syuku](https://fonts.google.com/specimen/Yuji+Syuku) と明朝 [Shippori Mincho](https://fonts.google.com/specimen/Shippori+Mincho)（届かない環境では端末の明朝体に落ちる）
 
@@ -62,19 +63,29 @@ index.html                        DOM構造・二層キャンバス・共有ダ�
 style.css                         縦書きタイポグラフィ、伝統色、mix-blend-mode による乗算合成
 src/
 ├── main.ts                       初期化・キャンバスサイズ調整・アニメーションループ
-├── config.ts                     物理パラメータと顔料の光学吸収係数
+├── config.ts                     物理パラメータ・顔料の光学吸収係数・画素シェーディングの強さ
 ├── types/physics.ts              ColorIndex・RGBColor などの型定義
 ├── physics/
 │   ├── Noise.ts                  2D Value Noise 生成
-│   ├── FluidGrid.ts              Float32Array による物理場（水分・速度・顔料）
-│   └── FluidSolver.ts            毛細管拡散・定着・移流ソルバー
+│   ├── FluidGrid.ts              Float32Array による物理場（水分・速度・顔料・繊維方向）
+│   ├── FluidSolver.ts            毛細管拡散・定着・移流ソルバー（CPU）
+│   └── WebGpuFluidSolver.ts      同じ物理のコンピュートシェーダー実装（16×16 タイル・共有メモリ）
 ├── renderer/
-│   ├── PaperRenderer.ts          和紙テクスチャ・繊維の静的描画
+│   ├── PaperRenderer.ts          和紙テクスチャ（繊維は物理場の向きに揃える）
 │   ├── InkRenderer.ts            Canvas 2D フォールバック描画
-│   └── WebGpuInkRenderer.ts      GPU 減法混色・格子補間描画
+│   ├── WebGpuInkRenderer.ts      格子→テクスチャ→画素シェーディングの GPU 描画と書き出し読み戻し
+│   └── WebGpuTypes.ts            使う範囲だけの WebGPU 型定義
+├── quality/
+│   ├── DeviceProfile.ts          アダプター情報の読み出しと電話サイズ端末の判定
+│   ├── QualityPolicy.ts          セルサイズと描画 DPR の初期値
+│   └── FrameBudgetMonitor.ts     実フレーム間隔による DPR・シェーディング段階の自動調整
+├── session/
+│   ├── SimulationCoordinator.ts  readback・書き出し・リサイズの排他
+│   └── AttractController.ts      展示モードの待機画面
 ├── interaction/
 │   ├── InputController.ts        Pointer Events・落墨・筆致の運動量付与
-│   └── RinseController.ts        水洗いの前線波と顔料の再溶解
+│   ├── RinseController.ts        水洗いの前線波と顔料の再溶解
+│   └── RinseEffects.ts           洗い流すボタンのタンク演出（motion）
 └── export/
     ├── CardExporter.ts           カード合成と PNG File の生成
     ├── CreatorProfile.ts         作者名の保存・読み出し（localStorage）
@@ -87,11 +98,31 @@ src/
 
 背景の和紙（`#paper`）と墨（`#inkLayer`）を別々のキャンバスに分け、CSS の `mix-blend-mode: multiply` で合成しています。和紙は初期化時とリサイズ時のみ描画すればよく、毎フレームの再描画対象は墨層だけに絞られます。
 
-### WebGPU 描画と格子解像度の削減
+### WebGPU パイプライン
 
-1セル = 3 CSS px（`CS = 3`）で物理場を保持することで計算量を約 1/9 に抑えます。WebGPU 対応ブラウザでは、各セルの顔料・水分・紙目をストレージバッファとしてアップロードし、減法混色の光学計算と 4×4 近傍の三次補間（Mitchell–Netravali）をフラグメントシェーダーで実行します。これにより毎フレームの `ImageData` 更新と Canvas 2D の拡大転送を回避し、格子の粗さを画面に出さずに入力中も滑らかな描画を維持します。WebGPU が使える場合は画面サイズにかかわらずセル 3 px・描画 DPR 2 を使い、CPU フォールバック時のみ画面面積とコア数に応じてセルを 3〜5 px に粗くします。
+1セル = 3 CSS px（`CS = 3`）で物理場を保持することで計算量を約 1/9 に抑えます。WebGPU 対応ブラウザでは物理と描画のすべてが GPU 上で完結し、フレームごとの CPU ⇄ GPU 転送はありません。
 
-WebGPU が使えない環境では、既存の `ImageData` を再利用する Canvas 2D 描画へ自動フォールバックするため、機能と PNG 書き出しは従来どおり利用できます。
+**物理（コンピュート）** — 拡散・定着、移流、落墨などの操作の 3 カーネル。ワークグループは 16×16 の 2D タイルで、拡散はタイル + 縁 1 セル分の必要成分だけを共有メモリ（約 10 KB）に一度載せてから 8 近傍ステンシルを解きます。1D の 64 スレッドで 64 バイトのセル構造体を近傍ごとにグローバル読み出ししていた時に比べ、帯域がボトルネックになりやすいモバイル GPU で効きます。
+
+**描画** — 3 段構成です。
+1. `shade`（コンピュート）: 各セルで Lambert–Beer の光学密度を求め、`rgba16float` テクスチャに書く（rgb = 密度、a = 水分）。
+2. `bakePaper`（コンピュート）: 紙目・繊維方向・浸透率を別テクスチャに焼く。紙の場が置き換わった時（初期化・リサイズ）だけ。
+3. フラグメント: 画素ごとに密度を 4×4 近傍の三次補間（Mitchell–Netravali）で読み、密度（対数）空間で補間してから指数を取る。その上で画面解像度の表現を足す — 繊維方向を 8 方向に量子化した筋ノイズで読み出し位置を繊維に沿ってずらす（毛羽）、紙の微細な高低で光路長を揺らす（粒状感、乾くほど強い）、水面の傾きと紙の微細法線からの鏡面反射で濡れた墨を紙色へ寄せる（艶）。
+
+以前はフラグメントが画素あたり 16 回、64 バイトのセル構造体をストレージバッファから読んでいました。テクスチャ経由にしたのは、モバイル GPU ではテクスチャキャッシュを通る 8 バイトの読み出しの方がはるかに軽いためです。
+
+作品カードの書き出しも同じシェーダーでオフスクリーンテクスチャに描き、`copyTextureToBuffer` で読み戻します。画面と書き出しの見た目が一致し、表示キャンバスの内容が提示後に破棄される問題も避けられます。
+
+WebGPU が使えない環境（および SwiftShader などのソフトウェア実装しか無い環境）では、`ImageData` を再利用する Canvas 2D 描画へ自動フォールバックするため、機能と PNG 書き出しは従来どおり利用できます。
+
+### 端末に合わせた品質
+
+すべての計算は端末内で行うので、使える資源は端末の GPU（iOS Safari では Metal、Android Chrome では Vulkan が WebGPU の下にあります）と CPU です。それを使い切りつつ落ちないよう、次の 2 段で調整します。
+
+- **初期値** — アダプター情報（`adapter.info`）とタッチ・画面サイズから電話サイズの端末を判定し、描画 DPR を 1.5 から始めます。タブレットと PC は 2 から始めます。セルは GPU なら常に 3 px、CPU フォールバック時のみ画面面積とコア数に応じて 3〜5 px に粗くします。
+- **実測** — `requestAnimationFrame` の実フレーム間隔を、シミュレーションが動いているフレームだけ平均します。GPU が飽和すると CPU 側の処理時間には現れずフレーム間隔が伸びるので、これを見ます。遅ければ DPR を 0.25 刻みで 1 まで下げ、それでも遅ければ画素シェーディングを簡略化（三次補間→双線形、毛羽と艶を停止）します。速ければ逆順に戻します。
+
+選ばれた経路と品質はコンソールに `BOKUGI: WebGPU (apple / metal-3) tier=phone cell=3px dpr=1.5` のように出るので、Safari / Chrome のリモートインスペクタで端末ごとの挙動を確認できます。URL に `?quality=high|balanced|low`、`?detail=basic` を付けると固定できます。
 
 ### 描画スキップ
 
@@ -113,4 +144,4 @@ WebGPU が使えない環境では、既存の `ImageData` を再利用する Ca
 
 ## 動作環境
 
-Pointer Events と Canvas 2D に対応したモダンブラウザ（Chrome / Edge / Safari / Firefox の最新版）。WebGPU に対応する Chrome / Edge / Safari では GPU 描画を利用し、非対応ブラウザでは Canvas 2D 描画に自動で切り替わります。作品カードの直接共有は Web Share API（`navigator.canShare({ files })`）に対応した端末でのみ有効で、主に iOS / Android が対象です。非対応環境では PNG のダウンロードに切り替わります。
+Pointer Events と Canvas 2D に対応したモダンブラウザ（Chrome / Edge / Safari / Firefox の最新版）。WebGPU に対応する Chrome / Edge / Safari（iOS 26 以降の Safari、Android Chrome を含む）では端末の GPU で物理と描画を行い、非対応ブラウザでは Canvas 2D 描画に自動で切り替わります。作品カードの直接共有は Web Share API（`navigator.canShare({ files })`）に対応した端末でのみ有効で、主に iOS / Android が対象です。非対応環境では PNG のダウンロードに切り替わります。

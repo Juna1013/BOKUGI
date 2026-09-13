@@ -37,3 +37,15 @@ export const ABS: AbsorptionTable = [
   [0.28, 2.70, 2.95], // 朱
   [2.75, 1.70, 0.50], // 藍
 ] as const;
+
+/**
+ * 画素単位のシェーディング（WebGPU 描画のみ）。格子は 3 px だが、
+ * 紙の粒・繊維の毛羽・濡れの艶は画面解像度でシェーダーが作る。
+ */
+/** 紙の粒状感。顔料は乾くにつれ紙の谷に沈んで粒立つので、光学密度をこの割合で揺らす。 */
+export const GRAIN_AMPLITUDE_WET: number = 0.08;
+export const GRAIN_AMPLITUDE_DRY: number = 0.2;
+/** 繊維に沿った毛羽。密度の読み出し位置を繊維方向へ最大このセル数ずらし、滲みの縁を繊維状にする。 */
+export const FIBER_WARP_CELLS: number = 0.75;
+/** 濡れた墨の艶。水面の傾きから求めた鏡面反射で、紙色へ寄せる割合の上限。 */
+export const GLOSS_STRENGTH: number = 0.32;
