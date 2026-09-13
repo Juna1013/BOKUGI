@@ -127,13 +127,27 @@ canvas {
     background: radial-gradient(circle at 35% 30%, #3a6cae, #1f3f74)
 }
 
-/* 水で洗い流す: 誤タップで作品を失わないよう、長押しで水が満ちてから流れる */
-.rinse {
+/* 水で洗い流す: 誤タップで作品を失わないよう、長押しで水が満ちてから流れる。
+   初見でも分かるよう、ボタンに「長押し」を添え、短く離した時は案内を出す。 */
+.rinse-area {
     position: fixed;
     left: max(22px, env(safe-area-inset-left));
     bottom: max(22px, env(safe-area-inset-bottom));
     z-index: 3;
+    display: flex;
+    align-items: flex-end;
+    gap: 14px;
+    /* 余白部分で紙への落墨を妨げない */
+    pointer-events: none;
+}
+
+.rinse {
+    position: relative;
+    pointer-events: auto;
     writing-mode: vertical-rl;
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
     font-family: inherit;
     font-size: 14px;
     letter-spacing: .5em;
@@ -150,15 +164,23 @@ canvas {
     -webkit-touch-callout: none;
 }
 
+.rinse__sub {
+    font-size: 10px;
+    letter-spacing: .35em;
+    color: inherit;
+}
+
+/* 押している間に水が満ち、途中で離すと引いていく */
 .rinse::before {
     content: "";
     position: absolute;
     left: 0;
     right: 0;
     bottom: 0;
-    height: 0;
-    background: rgba(31, 63, 116, .18);
+    height: 0%;
+    background: rgba(31, 63, 116, .2);
     pointer-events: none;
+    transition: height .45s ease-out;
 }
 
 /* RinseController の HOLD_DURATION_MS と揃える */
@@ -167,12 +189,8 @@ canvas {
 }
 
 .rinse.is-holding::before {
-    animation: rinse-fill .9s linear forwards;
-}
-
-@keyframes rinse-fill {
-    from { height: 0; }
-    to { height: 100%; }
+    height: 100%;
+    transition: height .9s linear;
 }
 
 .rinse:hover, .rinse:focus-visible {
@@ -182,6 +200,24 @@ canvas {
 .rinse:focus-visible {
     outline: 1px solid rgba(27, 27, 32, .5);
     outline-offset: 3px;
+}
+
+/* 短いタップの後に出す案内。ボタンの隣に、水と同じ藍で */
+.rinse-tip {
+    writing-mode: vertical-rl;
+    font-size: 12px;
+    letter-spacing: .35em;
+    line-height: 1;
+    padding-bottom: 14px;
+    color: rgba(31, 63, 116, .75);
+    opacity: 0;
+    transform: translateX(-6px);
+    transition: opacity .35s ease, transform .35s ease;
+}
+
+.rinse-tip.is-visible {
+    opacity: 1;
+    transform: translateX(0);
 }
 
 /* 作品を残す */
@@ -402,6 +438,12 @@ canvas {
     .hint span {
         animation: none;
         opacity: .7;
+    }
+
+    /* 水が満ちる進み具合は操作の手がかりなので残し、案内の移動だけ止める */
+    .rinse-tip {
+        transform: none;
+        transition: opacity .35s ease;
     }
 
     /* スライドは行わず、その場で表示する */

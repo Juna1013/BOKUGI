@@ -6,6 +6,8 @@ import type { ColorIndex } from '../types/physics.ts';
 /** 無操作がこの時間続いたら待機画面に入る。 */
 const IDLE_MS = 60_000;
 const DEFAULT_HINT = '紙に触れてください';
+/** 一巡の終わりに水で流す時、左下のボタンの水満ちと同時に見せる案内。 */
+const RINSE_HINT = '長押しで 水に流す';
 
 export interface AttractHooks {
   /** 待機画面に入る直前。前の来場者のセッション状態（作者名など）を破棄する。 */
@@ -71,9 +73,9 @@ export class AttractController {
 
   /** 毎フレーム、シミュレーションを進める前に呼ぶ。 */
   public update(): void {
-    // 来場者の水流しが終わった時点で白紙になったことを記録する
+    // 水流しが終わった時点で白紙になったことを記録する
     const rinsing = this.rinseController.rinsing > 0;
-    if (this.wasRinsing && !rinsing && this.state === 'off') this.paperBlank = true;
+    if (this.wasRinsing && !rinsing) this.paperBlank = true;
     this.wasRinsing = rinsing;
 
     if (!this.enabled) return;
@@ -84,8 +86,12 @@ export class AttractController {
     }
 
     if (this.state === 'rinsing') {
-      if (this.rinseController.rinsing > 0) return;
-      this.paperBlank = true;
+      if (rinsing || this.rinseController.holdPending) return;
+      if (!this.paperBlank) {
+        // 前の来場者の作品が残っている、または長押しの演出が中断された
+        this.rinseController.rinsing = 1;
+        return;
+      }
       this.startDemo();
       return;
     }
@@ -103,16 +109,14 @@ export class AttractController {
     this.hooks.onEnter?.();
     this.showHint(DEFAULT_HINT);
 
-    // 前の来場者の作品が残っていれば、水で流してから始める
+    // 前の来場者の作品が残っていれば、update() が水で流してから始める
     this.state = 'rinsing';
-    if (!this.paperBlank && this.rinseController.rinsing === 0) {
-      this.rinseController.rinsing = 1;
-    }
   }
 
   /** 来場者が触れた。デモの墨をすべて消し、その入力を最初の一筆にする。 */
   private leave(): void {
     this.state = 'off';
+    this.rinseController.cancelHold();
     this.rinseController.rinsing = 0;
     this.solver.clearAll();
     this.renderFn();
@@ -142,10 +146,11 @@ export class AttractController {
     this.actIndex++;
     const next = this.acts[this.actIndex];
     if (!next) {
-      // 一巡したら流して最初から
+      // 一巡したら、来場者が長押しした時と同じ所作で流して最初から
       this.state = 'rinsing';
       this.paperBlank = false;
-      this.rinseController.rinsing = 1;
+      this.showHint(RINSE_HINT);
+      this.rinseController.beginWithHoldCue();
       return;
     }
     this.showHint(next.hint);

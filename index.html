@@ -21,7 +21,13 @@
         <button class="a" data-c="2" role="radio" aria-checked="false" aria-label="藍">藍</button>
     </div>
 
-    <button class="rinse" id="rinse" aria-label="水で洗い流す（長押し）" title="長押しで水を流します">水で洗い流す</button>
+    <div class="rinse-area">
+        <button class="rinse" id="rinse" aria-label="水で洗い流す（長押し）" title="長押しで水を流します">
+            <span class="rinse__label">水で洗い流す</span>
+            <small class="rinse__sub">長押し</small>
+        </button>
+        <p class="rinse-tip" id="rinseTip" role="status" aria-live="polite"></p>
+    </div>
 
     <button class="share-card-button" id="shareCardButton">作品を残す</button>
 
