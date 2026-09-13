@@ -15,6 +15,7 @@ import {
 import { FrameBudgetMonitor } from './quality/FrameBudgetMonitor.ts';
 import { selectQuality } from './quality/QualityPolicy.ts';
 import { SimulationCoordinator } from './session/SimulationCoordinator.ts';
+import { AttractController } from './session/AttractController.ts';
 
 void (async () => {
   'use strict';
@@ -77,10 +78,12 @@ void (async () => {
     reduceMotion,
     renderAll,
   );
+  let attractController: AttractController | null = null;
   const simulationCoordinator = new SimulationCoordinator((busy) => {
     simulationBusy = busy;
     inputController.setEnabled(!busy);
     rinseController.setEnabled(!busy);
+    attractController?.setEnabled(!busy);
   });
 
   function resizeInkSurface(): void {
@@ -144,7 +147,15 @@ void (async () => {
   const profileStore = exhibitionMode
     ? new SessionCreatorProfileStore()
     : new CreatorProfileStore();
-  new ShareCardController(cardExporter, profileStore);
+  const shareCardController = new ShareCardController(cardExporter, profileStore);
+
+  // 展示端末では、無人になったら前の来場者の作品と作者名を片付け、
+  // 墨の所作を自動再生して次の来場者を待つ。
+  if (exhibitionMode && !reduceMotion) {
+    attractController = new AttractController(solver, rinseController, inkCv, renderAll, {
+      onEnter: () => shareCardController.resetSession(),
+    });
+  }
 
   const frameBudget = new FrameBudgetMonitor(
     renderDpr,
@@ -201,6 +212,7 @@ void (async () => {
     if (!reduceMotion && !simulationBusy) {
       const active = solver.wet > 0 || rinseController.rinsing > 0 || inputController.down;
       const startedAt = performance.now();
+      attractController?.update();
       inputController.updateHold();
       solver.runSteps(SUB);
       solver.advect();
