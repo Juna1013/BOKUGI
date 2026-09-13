@@ -1,5 +1,5 @@
 /**
- * GPU readback、Undo/Redo、リサイズを直列化する小さな排他キュー。
+ * GPU readback、カード書き出し、リサイズを直列化する小さな排他キュー。
  * 失敗した処理があっても、後続処理を止めない。
  */
 export class SimulationCoordinator {
