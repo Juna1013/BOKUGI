@@ -59,12 +59,21 @@ canvas {
     transition: opacity 1.6s ease;
 }
 
+.hint.gone {
+    opacity: 0;
+}
+
 .hint span {
     writing-mode: vertical-rl;
     font-size: 17px;
     letter-spacing: .55em;
     color: rgba(27, 27, 32, .35);
     animation: breathe 4s ease-in-out infinite;
+}
+
+@keyframes breathe {
+    0%, 100% { opacity: .55; }
+    50% { opacity: 1; }
 }
 
 /* 色を選ぶ: 皿に出した絵の具 */
