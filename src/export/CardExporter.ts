@@ -1,10 +1,5 @@
 import { hasPublishableProfile, type CreatorProfile } from './CreatorProfile.ts';
 
-export interface CropPosition {
-  x: number;
-  y: number;
-}
-
 export interface ArtworkSnapshot {
   paperCanvas: HTMLCanvasElement;
   inkCanvas: HTMLCanvasElement;
@@ -15,7 +10,6 @@ export interface CardOptions {
   height: number;
   title: string;
   date: Date;
-  crop: CropPosition;
   /** 掲載がONの場合のみ渡す。未指定なら作品のみのカードになる。 */
   profile?: CreatorProfile;
 }
@@ -63,7 +57,6 @@ export class CardExporter {
       artwork.paperCanvas.width,
       artwork.paperCanvas.height,
       frame.width / frame.height,
-      options.crop,
     );
 
     ctx.save();
@@ -132,12 +125,8 @@ export class CardExporter {
     }
   }
 
-  private cropRect(
-    width: number,
-    height: number,
-    targetRatio: number,
-    position: CropPosition,
-  ) {
+  /** カード枠の比率に合わせて、作品の中央を切り出す。 */
+  private cropRect(width: number, height: number, targetRatio: number) {
     const sourceRatio = width / height;
     let cropWidth = width;
     let cropHeight = height;
@@ -145,11 +134,9 @@ export class CardExporter {
     if (sourceRatio > targetRatio) cropWidth = height * targetRatio;
     else cropHeight = width / targetRatio;
 
-    const maxX = width - cropWidth;
-    const maxY = height - cropHeight;
     return {
-      x: Math.max(0, Math.min(position.x, 1)) * maxX,
-      y: Math.max(0, Math.min(position.y, 1)) * maxY,
+      x: (width - cropWidth) / 2,
+      y: (height - cropHeight) / 2,
       width: cropWidth,
       height: cropHeight,
     };
