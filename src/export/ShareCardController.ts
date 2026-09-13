@@ -23,9 +23,6 @@ export class ShareCardController {
 
   private readonly nameInput: HTMLInputElement;
   private readonly showProfileToggle: HTMLInputElement;
-  private readonly cropX: HTMLInputElement;
-  private readonly cropY: HTMLInputElement;
-  private readonly resetCropButton: HTMLButtonElement;
 
   private preparedFile: File | null = null;
   private artwork: ArtworkSnapshot | null = null;
@@ -37,7 +34,6 @@ export class ShareCardController {
   private sessionRevision = 0;
   private closing = false;
   private closeTimer: ReturnType<typeof setTimeout> | undefined;
-  private cropTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     private readonly exporter: CardExporter,
@@ -53,9 +49,6 @@ export class ShareCardController {
 
     this.nameInput = this.require<HTMLInputElement>('creatorName');
     this.showProfileToggle = this.require<HTMLInputElement>('showProfileToggle');
-    this.cropX = this.require<HTMLInputElement>('cropX');
-    this.cropY = this.require<HTMLInputElement>('cropY');
-    this.resetCropButton = this.require<HTMLButtonElement>('resetCropButton');
 
     this.profile = this.store.load();
     this.applyProfileToForm();
@@ -96,21 +89,6 @@ export class ShareCardController {
     // プロフィールを変更したらカードを作り直す
     this.nameInput.addEventListener('change', () => void this.onProfileChanged());
     this.showProfileToggle.addEventListener('change', () => void this.onProfileChanged());
-
-    const scheduleCrop = (): void => {
-      if (this.cropTimer !== undefined) clearTimeout(this.cropTimer);
-      this.cropTimer = setTimeout(() => {
-        this.cropTimer = undefined;
-        void this.generateCard();
-      }, 120);
-    };
-    this.cropX.addEventListener('input', scheduleCrop);
-    this.cropY.addEventListener('input', scheduleCrop);
-    this.resetCropButton.addEventListener('click', () => {
-      this.cropX.value = '0.5';
-      this.cropY.value = '0.5';
-      void this.generateCard();
-    });
 
     window.addEventListener('pagehide', () => this.releaseCardSession());
   }
@@ -198,10 +176,6 @@ export class ShareCardController {
         height: CARD_HEIGHT,
         title: CARD_TITLE,
         date: new Date(),
-        crop: {
-          x: Number(this.cropX.value),
-          y: Number(this.cropY.value),
-        },
         profile: this.publishableProfile(),
       }, artwork);
 
@@ -317,10 +291,6 @@ export class ShareCardController {
 
   /** 共有ダイアログ内だけで保持する作品・生成結果をまとめて破棄する。 */
   private releaseCardSession(): void {
-    if (this.cropTimer !== undefined) {
-      clearTimeout(this.cropTimer);
-      this.cropTimer = undefined;
-    }
     this.sessionRevision++;
     this.generationRevision++;
     this.artwork = null;
@@ -340,8 +310,6 @@ export class ShareCardController {
     this.store.clear();
     this.profile = this.store.load();
     this.applyProfileToForm();
-    this.cropX.value = '0.5';
-    this.cropY.value = '0.5';
     this.setStatus('');
   }
 }
