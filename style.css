@@ -126,7 +126,7 @@ canvas {
     background: radial-gradient(circle at 35% 30%, #3a6cae, #1f3f74)
 }
 
-/* 筆種: 色とは独立して水分量と顔料量を選ぶ */
+/* 水で洗い流す: 誤タップで作品を失わないよう、長押しで水が満ちてから流れる */
 .rinse {
     position: fixed;
     left: 22px;
@@ -143,6 +143,33 @@ canvas {
     border-right: 1px solid rgba(27, 27, 32, .4);
     cursor: pointer;
     transition: color .4s;
+    overflow: hidden;
+    -webkit-touch-callout: none;
+}
+
+.rinse::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 0;
+    background: rgba(31, 63, 116, .18);
+    pointer-events: none;
+}
+
+/* RinseController の HOLD_DURATION_MS と揃える */
+.rinse.is-holding {
+    color: rgba(27, 27, 32, .85);
+}
+
+.rinse.is-holding::before {
+    animation: rinse-fill .9s linear forwards;
+}
+
+@keyframes rinse-fill {
+    from { height: 0; }
+    to { height: 100%; }
 }
 
 .rinse:hover, .rinse:focus-visible {
