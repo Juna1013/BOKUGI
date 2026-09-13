@@ -118,7 +118,7 @@ export class WebGpuInkRenderer {
   private gridInfo = new Uint32Array(4);
   private boundStateVersion = -1;
 
-  private constructor(canvas: HTMLCanvasElement, device: GpuDevice, format: string, context: GpuCanvasContext) {
+  private constructor(device: GpuDevice, format: string, context: GpuCanvasContext) {
     this.device = device;
     this.format = format;
     this.context = context;
@@ -133,7 +133,7 @@ export class WebGpuInkRenderer {
       size: this.gridInfo.byteLength,
       usage: GPU_BUFFER_USAGE_COPY_DST | GPU_BUFFER_USAGE_UNIFORM,
     });
-    this.configure(canvas);
+    this.configure();
   }
 
   public static async create(canvas: HTMLCanvasElement): Promise<WebGpuInkRenderer | null> {
@@ -146,7 +146,7 @@ export class WebGpuInkRenderer {
       const device = await adapter.requestDevice();
       const context = canvas.getContext('webgpu') as unknown as GpuCanvasContext | null;
       if (!context) return null;
-      return new WebGpuInkRenderer(canvas, device, gpu.getPreferredCanvasFormat(), context);
+      return new WebGpuInkRenderer(device, gpu.getPreferredCanvasFormat(), context);
     } catch {
       return null;
     }
@@ -195,8 +195,21 @@ export class WebGpuInkRenderer {
     this.device.queue.submit([encoder.finish()]);
   }
 
-  private configure(canvas: HTMLCanvasElement): void {
+  private configure(): void {
     this.context.configure({ device: this.device, format: this.format, alphaMode: 'premultiplied' });
-    canvas.addEventListener('webgpucontextlost', () => window.location.reload(), { once: true });
+    this.watchDeviceLoss();
+  }
+
+  /**
+   * WebGPU にはキャンバスの contextlost イベントが無く、デバイス喪失は
+   * device.lost の解決で通知される。失われたデバイスへの submit は黙って
+   * 捨てられ画面が固まるため、再読み込みして新しいデバイスで作り直す。
+   */
+  private watchDeviceLoss(): void {
+    void this.device.lost.then((info) => {
+      if (info.reason === 'destroyed') return;
+      console.error('WebGPU デバイスが失われました。再読み込みします。', info.message);
+      window.location.reload();
+    });
   }
 }
