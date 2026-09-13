@@ -31,8 +31,8 @@ canvas {
 
 .title {
     position: fixed;
-    top: 24px;
-    right: 22px;
+    top: max(24px, env(safe-area-inset-top));
+    right: max(22px, env(safe-area-inset-right));
     z-index: 3;
     writing-mode: vertical-rl;
     font-size: 15px;
@@ -70,22 +70,23 @@ canvas {
 /* 色を選ぶ: 皿に出した絵の具 */
 .palette {
     position: fixed;
-    left: 18px;
-    top: 24px;
+    left: max(18px, env(safe-area-inset-left));
+    top: max(24px, env(safe-area-inset-top));
     z-index: 3;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 16px;
 }
 
+/* 展示端末で指先が確実に届くよう、操作領域は 48px 以上にする */
 .palette button {
-    width: 38px;
-    height: 38px;
+    width: 48px;
+    height: 48px;
     border-radius: 50%;
     border: none;
     cursor: pointer;
     font-family: inherit;
-    font-size: 13px;
+    font-size: 15px;
     color: rgba(242, 237, 225, .92);
     display: flex;
     align-items: center;
@@ -120,14 +121,16 @@ canvas {
 /* 筆種: 色とは独立して水分量と顔料量を選ぶ */
 .rinse {
     position: fixed;
-    left: 22px;
-    bottom: 22px;
+    left: max(22px, env(safe-area-inset-left));
+    bottom: max(22px, env(safe-area-inset-bottom));
     z-index: 3;
     writing-mode: vertical-rl;
     font-family: inherit;
-    font-size: 13px;
+    font-size: 14px;
     letter-spacing: .5em;
-    padding: 14px 9px 8px;
+    min-width: 48px;
+    min-height: 48px;
+    padding: 18px 16px 12px;
     background: none;
     border: none;
     color: rgba(27, 27, 32, .4);
@@ -148,14 +151,16 @@ canvas {
 /* 作品を残す */
 .share-card-button {
     position: fixed;
-    right: 22px;
-    bottom: 22px;
+    right: max(22px, env(safe-area-inset-right));
+    bottom: max(22px, env(safe-area-inset-bottom));
     z-index: 3;
     writing-mode: vertical-rl;
     font-family: inherit;
-    font-size: 13px;
+    font-size: 14px;
     letter-spacing: .5em;
-    padding: 14px 9px 8px;
+    min-width: 48px;
+    min-height: 48px;
+    padding: 18px 16px 12px;
     background: none;
     border: none;
     color: rgba(27, 27, 32, .4);
@@ -223,12 +228,14 @@ canvas {
 
 .share-dialog__close {
     position: absolute;
-    top: 10px;
-    right: 12px;
+    top: 4px;
+    right: 4px;
+    width: 44px;
+    height: 44px;
     background: none;
     border: none;
     font-family: inherit;
-    font-size: 20px;
+    font-size: 22px;
     line-height: 1;
     color: rgba(27, 27, 32, .45);
     cursor: pointer;
@@ -272,10 +279,17 @@ canvas {
 .share-dialog__toggle {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    margin: 10px 0 14px;
+    gap: 10px;
+    font-size: 14px;
+    min-height: 44px;
+    margin: 4px 0 8px;
     cursor: pointer;
+}
+
+.share-dialog__toggle input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    margin: 0;
 }
 
 .share-dialog__profile > label:not(.share-dialog__toggle) {
@@ -290,8 +304,10 @@ canvas {
 .share-dialog__profile input[type="url"] {
     width: 100%;
     font-family: inherit;
-    font-size: 14px;
-    padding: 7px 9px;
+    /* 16px 未満だと iOS Safari がフォーカス時に拡大する */
+    font-size: 16px;
+    min-height: 44px;
+    padding: 9px 11px;
     margin-bottom: 12px;
     background: rgba(255, 255, 255, .55);
     border: 1px solid rgba(27, 27, 32, .25);
@@ -317,9 +333,10 @@ canvas {
 .share-dialog__actions button {
     flex: 1;
     font-family: inherit;
-    font-size: 13px;
+    font-size: 14px;
     letter-spacing: .2em;
-    padding: 11px 8px;
+    min-height: 48px;
+    padding: 12px 8px;
     background: none;
     border: 1px solid rgba(27, 27, 32, .45);
     color: rgba(27, 27, 32, .8);
