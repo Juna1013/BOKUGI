@@ -6,8 +6,9 @@ import {
   type CreatorProfileRepository,
 } from './CreatorProfile.ts';
 
-const CARD_WIDTH = 1080;
-const CARD_HEIGHT = 1350;
+/** 縦位置の作品は 4:5、横位置の作品は 5:4 のカードにする。 */
+const CARD_PORTRAIT = { width: 1080, height: 1350 } as const;
+const CARD_LANDSCAPE = { width: 1350, height: 1080 } as const;
 const CARD_TITLE = '墨戯';
 /** style.css の .share-dialog スライドアニメーションと揃える。 */
 const SLIDE_DURATION_MS = 420;
@@ -133,6 +134,7 @@ export class ShareCardController {
       const artwork = await this.exporter.captureArtwork();
       if (sessionRevision !== this.sessionRevision) return;
       this.artwork = artwork;
+      this.applyPreviewAspect(artwork);
       this.dialog.showModal();
       // 初期位置（画面左外）を1フレーム描かせてからスライドインさせる
       requestAnimationFrame(() => this.dialog.classList.add('is-open'));
@@ -171,9 +173,10 @@ export class ShareCardController {
     this.setStatus('カードを作成しています…');
 
     try {
+      const size = cardSizeFor(artwork);
       const file = await this.exporter.createFile({
-        width: CARD_WIDTH,
-        height: CARD_HEIGHT,
+        width: size.width,
+        height: size.height,
         title: CARD_TITLE,
         date: new Date(),
         profile: this.publishableProfile(),
@@ -210,6 +213,12 @@ export class ShareCardController {
         await this.generateCard();
       }
     }
+  }
+
+  /** 横位置の作品ではプレビュー枠も横長にし、カードの余白を正しく見せる。 */
+  private applyPreviewAspect(artwork: ArtworkSnapshot): void {
+    const size = cardSizeFor(artwork);
+    this.preview.style.aspectRatio = `${size.width} / ${size.height}`;
   }
 
   /** 掲載ONで、かつ載せる内容がある場合だけカードへ渡す。 */
@@ -312,4 +321,13 @@ export class ShareCardController {
     this.applyProfileToForm();
     this.setStatus('');
   }
+}
+
+/**
+ * 作品の向きに合わせてカードの向きを決める。
+ * 横位置の画面で描いた作品を縦カードへ切り出すと左右が大きく失われるため。
+ */
+function cardSizeFor(artwork: ArtworkSnapshot): { width: number; height: number } {
+  const landscape = artwork.paperCanvas.width > artwork.paperCanvas.height;
+  return landscape ? CARD_LANDSCAPE : CARD_PORTRAIT;
 }
