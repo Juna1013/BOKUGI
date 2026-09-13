@@ -84,12 +84,17 @@ export class FluidGrid {
     const n2 = makeNoise(70, 160), s2x = 70 / gw, s2y = 160 / gh;
     const n3 = makeNoise(200, 400), s3x = 200 / gw, s3y = 400 / gh;
 
+    // 紙目はセル単位の乱数にせず、格子より粗い2オクターブの Value Noise で作る。
+    // セルごとに独立した値だと、描画時に3〜5pxの硬いモザイクとして見えてしまう。
+    const grainFine = this.grainOctave(2.5);
+    const grainCoarse = this.grainOctave(7);
+
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
         const i = y * gw + x;
         const val = n1(x * s1x, y * s1y) * 0.45 + n2(x * s2x, y * s2y) * 0.35 + n3(x * s3x, y * s3y) * 0.20;
         perm[i] = Math.min(1.4, Math.pow(val, 1.6) * 1.9 + 0.12);
-        grain[i] = 0.82 + Math.random() * 0.36;
+        grain[i] = 0.88 + (grainFine(x, y) * 0.55 + grainCoarse(x, y) * 0.45) * 0.24;
       }
     }
 
@@ -103,6 +108,15 @@ export class FluidGrid {
         ambV[i] = (-dndx * AMB) / eps;
       }
     }
+  }
+
+  /** 格子座標で評価できる、格子点間隔 cellsPerLattice セルの Value Noise を返す。 */
+  private grainOctave(cellsPerLattice: number): (x: number, y: number) => number {
+    const nx = Math.max(2, Math.ceil(this.gw / cellsPerLattice));
+    const ny = Math.max(2, Math.ceil(this.gh / cellsPerLattice));
+    const noise = makeNoise(nx, ny);
+    const sx = nx / this.gw, sy = ny / this.gh;
+    return (x, y) => noise(x * sx, y * sy);
   }
 
   public gridArea(cx: number, cy: number, R: number, fn: GridAreaCallback): void {

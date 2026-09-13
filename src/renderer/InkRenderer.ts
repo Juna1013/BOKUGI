@@ -34,7 +34,7 @@ export class InkRenderer {
 
   public initSmoothing(): void {
     this.ictx.imageSmoothingEnabled = true;
-    this.ictx.imageSmoothingQuality = 'medium';
+    this.ictx.imageSmoothingQuality = 'high';
   }
 
   public render(grid: FluidGrid, W: number, H: number): void {
