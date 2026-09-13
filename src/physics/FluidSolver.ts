@@ -57,7 +57,7 @@ export class FluidSolver {
     return null;
   }
 
-  /** Undo/Redoで復元されたCPU配列を実行状態へ反映する。 */
+  /** CPU配列の内容を実行状態へ反映する。 */
   public uploadFromGrid(): void {}
 
   public clearAll(): void {

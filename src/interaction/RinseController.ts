@@ -13,7 +13,6 @@ export class RinseController {
     solver: FluidSolver,
     reduceMotion: boolean,
     renderFn: () => void,
-    onRinseStart: () => void,
   ) {
     this.solver = solver;
     this.reduceMotion = reduceMotion;
@@ -21,7 +20,6 @@ export class RinseController {
 
     document.getElementById('rinse')?.addEventListener('click', () => {
       if (!this.enabled || this.rinsing) return;
-      onRinseStart();
       if (this.reduceMotion) {
         this.solver.clearAll();
         this.renderFn();

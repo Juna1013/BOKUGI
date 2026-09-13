@@ -1,4 +1,4 @@
-import { CAP, SUB } from './config.ts';
+import { SUB } from './config.ts';
 import { FluidGrid } from './physics/FluidGrid.ts';
 import { FluidSolver } from './physics/FluidSolver.ts';
 import { PaperRenderer } from './renderer/PaperRenderer.ts';
@@ -12,7 +12,6 @@ import {
   CreatorProfileStore,
   SessionCreatorProfileStore,
 } from './export/CreatorProfile.ts';
-import { FluidHistory } from './history/FluidHistory.ts';
 import { FrameBudgetMonitor } from './quality/FrameBudgetMonitor.ts';
 import { selectQuality } from './quality/QualityPolicy.ts';
 import { SimulationCoordinator } from './session/SimulationCoordinator.ts';
@@ -65,76 +64,23 @@ void (async () => {
     if (gpuInkRenderer && gpuSolver) gpuInkRenderer.render(gpuSolver, W, H);
     else cpuInkRenderer?.render(grid, W, H);
   };
-  const history = new FluidHistory(solver);
-  const undoButton = document.getElementById('undoButton') as HTMLButtonElement | null;
-  const redoButton = document.getElementById('redoButton') as HTMLButtonElement | null;
   let simulationBusy = false;
-
-  const updateHistoryButtons = (): void => {
-    if (undoButton) undoButton.disabled = simulationBusy || !history.canUndo;
-    if (redoButton) redoButton.disabled = simulationBusy || !history.canRedo;
-  };
-  const checkpointHistory = (): void => {
-    const checkpoint = history.checkpoint();
-    updateHistoryButtons();
-    void checkpoint.then(updateHistoryButtons, (error: unknown) => {
-      console.error('Undo履歴を保存できませんでした。', error);
-      updateHistoryButtons();
-    });
-  };
 
   const inputController = new InputController(
     inkCv,
     solver,
     renderAll,
     reduceMotion,
-    checkpointHistory,
   );
   const rinseController = new RinseController(
     solver,
     reduceMotion,
     renderAll,
-    checkpointHistory,
   );
   const simulationCoordinator = new SimulationCoordinator((busy) => {
     simulationBusy = busy;
     inputController.setEnabled(!busy);
     rinseController.setEnabled(!busy);
-    updateHistoryButtons();
-  });
-
-  let historyActionPending = false;
-  const restoreHistory = async (direction: 'undo' | 'redo'): Promise<void> => {
-    if (inputController.down || historyActionPending) return;
-    historyActionPending = true;
-    try {
-      await simulationCoordinator.runExclusive(async () => {
-        rinseController.rinsing = 0;
-        const restored = direction === 'undo' ? await history.undo() : await history.redo();
-        if (!restored) return;
-        solver.wet = grid.w.some(value => value > CAP) ? 1 : 0;
-        renderAll();
-      });
-    } finally {
-      historyActionPending = false;
-      updateHistoryButtons();
-    }
-  };
-
-  undoButton?.addEventListener('click', () => void restoreHistory('undo'));
-  redoButton?.addEventListener('click', () => void restoreHistory('redo'));
-  window.addEventListener('keydown', (event: KeyboardEvent) => {
-    const target = event.target;
-    if (
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement ||
-      !(event.metaKey || event.ctrlKey) ||
-      event.key.toLowerCase() !== 'z'
-    ) return;
-
-    event.preventDefault();
-    void restoreHistory(event.shiftKey ? 'redo' : 'undo');
   });
 
   function resizeInkSurface(): void {
@@ -172,7 +118,6 @@ void (async () => {
   let exportInkRenderer: InkRenderer | null = null;
   const getExportInkCanvas = (): Promise<HTMLCanvasElement> =>
     simulationCoordinator.runExclusive(async () => {
-      await history.settle();
       const readback = solver.readback();
       if (readback) await readback;
       if (!exportInkRenderer) {
@@ -234,13 +179,9 @@ void (async () => {
       resizeT = undefined;
       void simulationCoordinator.runExclusive(async () => {
         if (revision !== resizeRevision) return;
-        await history.settle();
-        if (revision !== resizeRevision) return;
         rinseController.rinsing = 0;
         const resized = await solver.resizePreservingState(nextWidth, nextHeight, {
           shouldApply: () => revision === resizeRevision,
-          // 実リサイズ後に復元できない旧格子の履歴を、ピークメモリ増加前に解放する。
-          beforeResize: () => history.clear(),
         });
         if (!resized) return;
 
