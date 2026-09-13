@@ -86,6 +86,7 @@
 | `ambU` / `ambV` | `Float32Array(N)` | 和紙のミクロな高低差・繊維による常時流動（漂い）ベクトル場（Curl Noise生成） |
 | `perm` | `Float32Array(N)` | 和紙の浸透率・毛細血管係数 $P_{x,y}$ （マルチオクターブValue Noise生成） |
 | `grain` | `Float32Array(N)` | 和紙の表面粒子感・粗さ係数 $G_{x,y} \in [0.88, 1.12]$（格子より粗い2オクターブの Value Noise。セル単位の乱数にすると描画時にモザイク状に見える） |
+| `fiberCos2` / `fiberSin2` | `Float32Array(N)` | 繊維方向の異方性 $(A\cos 2\theta,\ A\sin 2\theta)$。$\theta$ は繊維の軸、$A \in [0.35, 1] \cdot \text{FIBER\_ANISO}$ は揃い具合。繊維は向きのない軸なので $2\theta$ で持つ |
 | `p[3]` / `p2[3]` | `Array<Float32Array(N)>` | 水中に浮遊する顔料濃度（0: 墨、1: 朱、2: 藍） |
 | `d[3]` | `Array<Float32Array(N)>` | 和紙の繊維に定着・乾燥した顔料濃度（0: 墨、1: 朱、2: 藍） |
 
@@ -102,7 +103,9 @@
    $$\text{val} = 0.45 \cdot N_1 + 0.35 \cdot N_2 + 0.20 \cdot N_3$$
    $$\text{perm}[i] = \min\left(1.4, \text{val}^{1.6} \times 1.9 + 0.12\right)$$
    これにより、墨が染み込みやすい部分と弾きやすい部分のランダムなムラ（滲み足）が形成されます。
-2. **環流（漂い）ベクトル場 (`ambU`, `ambV`)**:
+2. **繊維方向場 (`fiberCos2`, `fiberSin2`)**:
+   向き $\theta = \pi\,(0.7 N_{22} + 0.3 N_{7})$（添字は格子点間隔のセル数）、強さ $A = \text{FIBER\_ANISO}\,(0.35 + 0.65 N_{12})$ として $(A\cos 2\theta, A\sin 2\theta)$ を保持します。向きを格子より粗く滑らかに変えるのは、細かく変わると滲み足が伸びる前に散ってしまうためです。
+3. **環流（漂い）ベクトル場 (`ambU`, `ambV`)**:
    ノイズの回転（Curl）を取ることで、非圧縮性（発散 $\nabla \cdot \mathbf{v} = 0$）の渦流場を計算：
    $$\text{ambU} = \frac{\partial N_f}{\partial y} \cdot \frac{\text{AMB}}{\varepsilon}, \quad \text{ambV} = -\frac{\partial N_f}{\partial x} \cdot \frac{\text{AMB}}{\varepsilon}$$
    これにより、水分の注入時に墨が特定の方向へと自然に漂う挙動を生み出します。
@@ -111,14 +114,20 @@
 
 毎フレーム、サブステップ数（`SUB = 2`）分だけ以下のステップを実行します。
 
-1. **毛細管拡散**:
-   水分量 $w_i > \text{CAP} (0.004)$ のセルについて、隣接4近傍（上下左右）との水分差 $\Delta w = w_i - w_j > 0$ を判定。
+1. **繊維に沿った毛細管拡散（異方性 8 近傍）**:
+   水分量 $w_i > \text{CAP} (0.004)$ のセルについて、8近傍（上下左右＋斜め）との水分差 $\Delta w = w_i - w_j > 0$ を判定。
+   近傍方向 $\varphi_e$ ごとの重み $k_e$ は、軸方向を $2/3$、斜めを $1/3$ とした上で、送り先セルの繊維軸 $\theta_j$ に沿う向きほど大きくします：
+   $$k_e = k^{\text{base}}_e \left(1 + A_j \cos 2(\varphi_e - \theta_j)\right)$$
+   （軸方向は $1 \pm A\cos 2\theta$、斜めは $1 \pm A\sin 2\theta$ となり、8方向の合計は $\theta$ によらず 4 で従来の4近傍と同じ拡散量）
    移動水量 $f$ を計算：
-   $$f = \min\left(\text{DIFF} \cdot \text{perm}_j \cdot \Delta w \cdot (0.6 + 0.8 \cdot \text{rand}()), \, 0.18 \cdot w_i\right)$$
-   水分とともに、水中に浮遊している顔料 $p[c]$ も割合 $f_r = f / w_i$ に応じて隣接セルへと送出されます。
+   $$f = \min\left(\text{DIFF} \cdot \text{perm}_j \cdot \Delta w \cdot (0.6 + 0.8 \cdot \text{rand}()) \cdot k_e, \, 0.18 \cdot w_i \cdot k_e\right)$$
+   水分とともに、水中に浮遊している顔料 $p[c]$ も割合 $f_r = f / w_i$ に応じて隣接セルへと送出されます。繊維に沿う向きへ水が速く進むため、滲みの縁が繊維方向に「滲み足」として伸びます。
 2. **蒸発と顔料の定着 (Evaporation & Deposition)**:
    - 水分はステップごとに自然蒸発：$w_i \leftarrow w_i \times \text{EVAP} \ (0.99972)$
-   - 紙の乾燥度 $\text{dry} = 1 - \min(6 w_i, 1)$ に応じて定着率 $\text{rate} = 0.003 + 0.05 \cdot \text{dry}^2$ が上昇。
+   - 紙の乾燥度 $\text{dry} = 1 - \min(6 w_i, 1)$ と水分勾配 $|\nabla w_i|$（中央差分）から定着率を決めます：
+     $$\text{rate} = \min\left(\text{DEPOSIT\_WET} + \text{DEPOSIT\_DRY} \cdot \text{dry}^2 + \text{EDGE\_DEPOSIT} \cdot \frac{\text{dry} \cdot |\nabla w_i|}{w_i + \text{EDGE\_WATER\_FLOOR}},\ \text{EDGE\_RATE\_MAX}\right)$$
+     第3項が**縁取り**（コーヒーリング効果）です。乾きかけた濡れ際は水分に対して勾配が大きく、毛細管流で外へ運ばれてきた顔料がそこで定着して縁が濃くなります。芯は勾配がほぼ 0 なので顔料が浮いたまま外へ運ばれ、乾いた後は縁より淡くなります。上限 $\text{EDGE\_RATE\_MAX}$ を小さく（0.03/step）取るのは、筆致を構成する各スタンプの縁が次のスタンプと合流する前に固まって数珠状に見えるのを防ぐためです。
+   - 浮遊顔料の合計が $10^{-5}$ を下回ったセルは 0 に打ち切り、勾配計算の対象から外します。
    - 浮遊顔料 $p[c]$ が減少し、定着顔料 $d[c]$ へと変換：
      $$\Delta d = p[c]_i \cdot \text{rate}, \quad d[c]_i \leftarrow d[c]_i + \Delta d, \quad p[c]_i \leftarrow p[c]_i - \Delta d$$
    - 流速の自然減衰：$u_i \leftarrow u_i \cdot \text{VDAMP}, \ v_i \leftarrow v_i \cdot \text{VDAMP} \ (0.995)$
