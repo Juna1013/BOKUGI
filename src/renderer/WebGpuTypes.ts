@@ -16,6 +16,13 @@ export type GpuDevice = {
     submit: (commands: unknown[]) => void;
   };
   createCommandEncoder: () => GpuCommandEncoder;
+  /** デバイスが失われた時に解決する。'destroyed' は自前で destroy() した場合。 */
+  lost: Promise<GpuDeviceLostInfo>;
+};
+
+export type GpuDeviceLostInfo = {
+  reason: 'destroyed' | 'unknown' | undefined;
+  message: string;
 };
 
 export type GpuBuffer = {
