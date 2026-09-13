@@ -198,7 +198,7 @@ export class FluidSolver {
     }
   }
 
-  // 3. 水分・顔料の投入。別々に指定することで水筆と墨の濃淡を表現する。
+  // 3. 水分・顔料の投入。別々に指定することで滲みと墨の濃淡を表現する。
   public deposit(
     cx: number,
     cy: number,

@@ -1,6 +1,5 @@
-import { BRUSH_PRESETS, CS } from '../config.ts';
+import { CS } from '../config.ts';
 import type { FluidSolver } from '../physics/FluidSolver.ts';
-import type { BrushKind } from '../types/brush.ts';
 import type { ColorIndex } from '../types/physics.ts';
 
 export class InputController {
@@ -9,7 +8,6 @@ export class InputController {
   public renderFn: () => void;
   public reduceMotion: boolean;
   public curColor: ColorIndex = 0;
-  public curBrush: BrushKind = 'dark';
   public down: boolean = false;
   public activePointerId: number | null = null;
   public lastX: number = 0;
@@ -31,7 +29,6 @@ export class InputController {
     this.reduceMotion = reduceMotion;
 
     this.initPalette();
-    this.initBrushes();
     this.initEvents();
   }
 
@@ -47,23 +44,6 @@ export class InputController {
           const selected = s === b;
           s.classList.toggle('on', selected);
           s.setAttribute('aria-checked', String(selected));
-        });
-      });
-    });
-  }
-
-  private initBrushes(): void {
-    const brushes = document.querySelectorAll<HTMLButtonElement>('.brushes button');
-    brushes.forEach(button => {
-      button.addEventListener('click', () => {
-        const brush = button.dataset['brush'];
-        if (brush === 'water' || brush === 'light' || brush === 'dark') {
-          this.curBrush = brush;
-        }
-        brushes.forEach(item => {
-          const selected = item === button;
-          item.classList.toggle('on', selected);
-          item.setAttribute('aria-checked', String(selected));
         });
       });
     });
@@ -158,15 +138,14 @@ export class InputController {
     const pressure = this.pointerPressure(e);
     const dt = Math.max(e.timeStamp - this.lastT, 1);
     const gain = Math.min((dist / dt) * 10, 3.5);
-    const preset = BRUSH_PRESETS[this.curBrush];
     const radiusScale = CS / this.solver.grid.CS;
     const velocityRadius = 4.5 + pressure * 3;
     this.solver.addVel(
       point.x,
       point.y,
-      (dx / dist) * gain * preset.momentum,
-      (dy / dist) * gain * preset.momentum,
-      velocityRadius * preset.radius * radiusScale,
+      (dx / dist) * gain,
+      (dy / dist) * gain,
+      velocityRadius * radiusScale,
     );
 
     const count = Math.ceil(dist / this.solver.grid.CS);
@@ -189,13 +168,12 @@ export class InputController {
   }
 
   private depositStamp(x: number, y: number, amount: number, radius: number): void {
-    const preset = BRUSH_PRESETS[this.curBrush];
     this.solver.deposit(
       x,
       y,
-      amount * preset.water,
-      amount * 0.55 * preset.pigment,
-      radius * preset.radius * (CS / this.solver.grid.CS),
+      amount,
+      amount * 0.55,
+      radius * (CS / this.solver.grid.CS),
       this.curColor,
     );
   }
