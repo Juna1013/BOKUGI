@@ -22,7 +22,12 @@
 | [`src/physics/FluidGrid.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/physics/FluidGrid.ts) | 物理場データ構造クラス（`Float32Array`: 水分・速度・顔料濃度場）と格子管理 |
 | [`src/physics/FluidSolver.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/physics/FluidSolver.ts) | 毛細血管拡散・定着・セミラグランジュ移流ソルバー（型安全な物理演算ロジック） |
 | [`src/renderer/PaperRenderer.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/renderer/PaperRenderer.ts) | 和紙テクスチャ・繊維の静的キャンバス描画クラス |
-| [`src/renderer/InkRenderer.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/renderer/InkRenderer.ts) | Lambert-Beer減法混色計算と低解像度 Offscreen Canvas 転送描画クラス |
+| [`src/physics/WebGpuFluidSolver.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/physics/WebGpuFluidSolver.ts) | 同じ物理のコンピュートシェーダー実装。16×16 の 2D ワークグループと共有メモリタイル |
+| [`src/renderer/InkRenderer.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/renderer/InkRenderer.ts) | Lambert-Beer減法混色計算と低解像度 Offscreen Canvas 転送描画クラス（Canvas 2D フォールバック） |
+| [`src/renderer/WebGpuInkRenderer.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/renderer/WebGpuInkRenderer.ts) | 格子→テクスチャ→画素シェーディングの GPU 描画。作品カード用のオフスクリーン描画と読み戻し |
+| [`src/quality/DeviceProfile.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/quality/DeviceProfile.ts) | WebGPU アダプター情報の読み出し、電話サイズ端末の判定 |
+| [`src/quality/QualityPolicy.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/quality/QualityPolicy.ts) | セルサイズ・描画 DPR の初期値の決定 |
+| [`src/quality/FrameBudgetMonitor.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/quality/FrameBudgetMonitor.ts) | 実フレーム間隔による描画 DPR とシェーディング段階の自動調整 |
 | [`src/interaction/InputController.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/interaction/InputController.ts) | Pointer Capture・ポインター入力・ストローク運動量付与制御クラス |
 | [`src/interaction/RinseController.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/interaction/RinseController.ts) | 水洗い機能の前線波・顔料再溶解アニメーション制御クラス |
 | [`src/interaction/RinseEffects.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/interaction/RinseEffects.ts) | 洗い流すボタンのタンク水位・波・溢れ・前線の帯（`motion` による DOM 演出） |
@@ -158,8 +163,17 @@
    $$\text{RGB}_k = 255 \cdot \exp\left( - (\text{absSum}_k + \text{sheen}_i) \cdot \text{grain}_i \right)$$
    ここで $\text{sheen}_i = 0.05 \cdot w_i$ は水分の濡れツヤによる減光、$\text{grain}_i$ は紙の粒子むら表現です。
 4. **格子から画面への補間**:
-   - **WebGPU**: フラグメントシェーダーで画素ごとに 4×4 近傍セルの光学密度 $(\text{absSum}_k + \text{sheen}_i) \cdot \text{grain}_i$ を Mitchell–Netravali 三次補間（B = C = 1/3）し、その後に $\exp$ を取ります。密度（対数）空間で補間するため濃淡の境界が滑らかにつながり、双線形補間で生じるセル境界の折れ目や、紙目の最近傍読み出しによるブロック状のムラが出ません。
+   - **WebGPU**: まずコンピュートパス `shade` が各セルの光学密度 $(\text{absSum}_k + \text{sheen}_i) \cdot \text{grain}_i$ と水分を `rgba16float` テクスチャに書きます。フラグメントシェーダーは画素ごとに 4×4 近傍を Mitchell–Netravali 三次補間（B = C = 1/3）し、その後に $\exp$ を取ります。密度（対数）空間で補間するため濃淡の境界が滑らかにつながり、双線形補間で生じるセル境界の折れ目や、紙目の最近傍読み出しによるブロック状のムラが出ません。
    - **Canvas 2D フォールバック**: `ImageData` にピクセル値を書き込み、低解像度オフスクリーン Canvas (`gridCv`) に `putImageData` した後、高解像度メイン Canvas (`inkCv`) へ `imageSmoothingQuality = 'high'` の `drawImage` で転送拡大します。
+
+5. **画素解像度のシェーディング（WebGPU のみ）**: 格子は 3 px ですが、フラグメントシェーダーが画面解像度で次を加えます。いずれもフレーム間で不変な画面座標ノイズ（hash ベースの Value Noise、CSS px 基準）から作るので、紙の模様として静止して見えます。紙の場（紙目・繊維方向 $(A\cos 2\theta, A\sin 2\theta)$・浸透率）は `bakePaper` パスが別テクスチャに焼き、双線形で読みます。
+   - **繊維の筋** $s$: 繊維の向き $\theta$ を 8 方向に量子化し、隣り合う 2 方向で評価した異方性ノイズ（繊維に沿って周期 11 px、直交方向 1.7 px）を混ぜます。画素ごとの $\theta$ でそのまま座標を回すと、向きが変わる所で座標系が渦を巻いて指紋状の同心円が出るため、固定した方向の座標系を使います。
+   - **毛羽（ドメインワープ）**: 密度の読み出し位置を $\mathbf{p} \leftarrow \mathbf{p} + \hat{\mathbf{f}}\,(s - 0.5)\,\text{FIBER\_WARP\_CELLS}\,(0.4 + 0.6 A')$ と繊維方向 $\hat{\mathbf{f}}$ へずらします（$A' = A / \text{FIBER\_ANISO}$）。滲みの縁が繊維に沿ってほつれ、平坦な芯は変わりません。
+   - **粒状感**: 紙の微細な高低 $h$（等方 2 オクターブと筋の混合）で光路長を揺らします： $\text{density} \leftarrow \text{density}\,(1 + 2(h - 0.5)\,g)$、$g = \text{lerp}(\text{GRAIN\_AMPLITUDE\_WET}, \text{GRAIN\_AMPLITUDE\_DRY}, \text{dry})$。乾くほど顔料が紙の谷に沈んで粒が立ちます。
+   - **濡れの艶**: 水分テクスチャの傾きと $h$ の微分から法線を作り、固定光源の Blinn–Phong 鏡面反射 $\max(\mathbf{n} \cdot \mathbf{h}, 0)^{28}$ を求めます。墨層は乗算合成で紙より明るくはできないので、墨のある所だけ $\text{wetness} \cdot \text{inkAmount} \cdot \text{GLOSS\_STRENGTH}$ の割合で紙色へ寄せて艶にします。乾くと消えます。
+   - `detail = basic`（`FrameBudgetMonitor` の最終段）では三次補間を双線形に、毛羽と艶を停止し、粒状感だけ残します。
+
+6. **作品カードの書き出し**: 同じレンダーパイプラインでオフスクリーンの `RENDER_ATTACHMENT | COPY_SRC` テクスチャに描き、`copyTextureToBuffer`（`bytesPerRow` は 256 バイト境界）で読み戻して `ImageData` に写します。表示キャンバスの内容は提示後に破棄されうるため直接は読みません。読み戻しに失敗した時は状態を readback して Canvas 2D の `InkRenderer` で描く経路に落ちます。
 
 ---
 
@@ -213,6 +227,16 @@
 1. **格子解像度削減 (CS = 3)**: 計算量を $1/9$ に削減しつつ、補間拡大と CSS multiply 合成で滑らかな描画を実現。
 2. **型付き配列 (TypedArray) の再利用**: ループ内でのメモリ割り当て（GC発生）を防止するため、配列や ImageData を事前生成して再利用。
 3. **描画スキップ条件**: 画面上に水分や進行中の水洗い動作、アクティブなタッチが存在しない場合は `render()` の実行をスキップし、GPU / CPU 負荷を軽減。
+4. **GPU コンピュートのタイル化**: 3 つのカーネルはいずれも 16×16 の 2D ワークグループで走ります。拡散カーネルはタイル + 縁 1 セル（18×18）の必要成分（水分・浮遊顔料 3 色・浸透率・繊維方向）を `var<workgroup>` に一度載せ、8 近傍ステンシルを共有メモリから解きます。64 バイトのセル構造体を近傍ごとにグローバル読み出しする 1D 版に比べて読み出し量は約 1/6 で、帯域律速になりやすいモバイル GPU で効きます。256 スレッド・約 10 KB は WebGPU の最低保証（`maxComputeInvocationsPerWorkgroup` 256、`maxComputeWorkgroupStorageSize` 16 KB）に収まるため、機種による分岐は不要です。
+5. **描画の帯域**: フラグメントはストレージバッファではなく `rgba16float` テクスチャを読みます（画素あたり三次補間 16 回 + 水面勾配 4 回）。テクスチャキャッシュを通る 8 バイト読み出しは、64 バイト構造体の読み出しよりモバイル GPU で大幅に軽くなります。
+
+### 6.3 端末に合わせた品質調整
+
+計算はすべて端末内で完結し、使える資源は端末の GPU（iOS Safari は Metal、Android Chrome は Vulkan を WebGPU の下で使う）と CPU です。
+
+- **初期値（`QualityPolicy`）**: WebGPU が使えれば常にセル 3 px。`DeviceProfile` がアダプター情報（`adapter.info.vendor` など）とタッチ・画面サイズから電話サイズの端末を判定し、描画 DPR を 1.5 から始めます（タブレット・PC は 2）。ソフトウェア実装（`isFallbackAdapter`）は GPU として扱わず Canvas 2D に落とします。CPU フォールバック時のみ画面面積とコア数に応じてセルを 3〜5 px に粗くします。
+- **実測（`FrameBudgetMonitor`）**: `requestAnimationFrame` のタイムスタンプから、シミュレーションが動いているフレームの実フレーム間隔を指数平均します。CPU 側の処理時間を測らないのは、GPU パスでは CPU はコマンドを発行するだけで、GPU が飽和してもその時間には現れないためです（ブラウザが次のフレームを遅らせるので間隔には出ます）。平均 24 ms 超が 45 フレーム続けば一段下げ、17.5 ms 未満が 300 フレーム続けば一段上げます。段階は DPR 0.25 刻み（上限は端末 DPR と品質プロファイルの小さい方、下限 1）→ 画素シェーディングの簡略化（`detail = basic`）の順で、変更後 180 フレームは様子を見ます。
+- URL パラメータ `?quality=high|balanced|low` と `?detail=basic` で固定でき、選ばれた経路と品質は起動時と変更時にコンソールへ出ます。
 
 ---
 

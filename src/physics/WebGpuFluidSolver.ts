@@ -28,7 +28,16 @@ import { FluidSolver } from './FluidSolver.ts';
 const FLOATS_PER_CELL = 16;
 const FLOATS_PER_OPERATION = 12;
 const MAX_OPERATIONS = 2048;
-const WORKGROUP_SIZE = 64;
+
+/**
+ * ワークグループは 16×16 の 2D タイル。1D の 64 スレッドで走らせると隣の行が
+ * メモリ上で遠く、モバイル GPU では拡散ステンシルの 9 セル読み出しがキャッシュに
+ * 乗らない。2D にして、拡散はさらにタイル + 1 セルの縁を共有メモリへ一度だけ載せる。
+ * 16×16 = 256 スレッド、共有メモリ 10 KB は WebGPU の最低保証（256 / 16 KB）に収まる。
+ */
+export const TILE_SIZE = 16;
+const HALO_SIZE = TILE_SIZE + 2;
+const HALO_CELLS = HALO_SIZE * HALO_SIZE;
 
 const computeShader = /* wgsl */ `
 struct FluidCell {
@@ -50,9 +59,17 @@ struct Operation {
   c: vec4<f32>,
 };
 
+const TILE = ${TILE_SIZE}u;
+const HALO = ${HALO_SIZE}u;
+const HALO_CELLS = ${HALO_CELLS}u;
+
 @group(0) @binding(0) var<storage, read> stateIn: array<FluidCell>;
 @group(0) @binding(1) var<storage, read_write> stateOut: array<FluidCell>;
 @group(0) @binding(2) var<uniform> info: SimInfo;
+
+// 拡散ステンシル用の共有メモリ。タイルと縁 1 セル分の、拡散に要る成分だけを置く。
+var<workgroup> tileFluid: array<vec4<f32>, HALO_CELLS>;  // water, pigment 0, 1, 2
+var<workgroup> tilePaper: array<vec4<f32>, HALO_CELLS>;  // permeability, cos2, sin2, 格子内なら 1
 
 fn randomFactor(sourceIndex: u32, targetIndex: u32) -> f32 {
   let seed = f32(sourceIndex * 1664525u + targetIndex * 1013904223u + info.step * 747796405u);
@@ -61,28 +78,32 @@ fn randomFactor(sourceIndex: u32, targetIndex: u32) -> f32 {
 
 // 繊維方向による拡散の重み。CPU 版 fiberWeight と同じ式・同じ近傍順序。
 // 軸方向 4 つは 2/3、斜め 4 つは 1/3 を基準にし、繊維に沿う向きを 1+A、直交を 1-A 倍する。
-fn fiberWeight(neighbor: u32, destination: FluidCell) -> f32 {
-  let cos2 = destination.paper.y;
-  let sin2 = destination.paper.z;
+fn fiberWeight(neighbor: u32, cos2: f32, sin2: f32) -> f32 {
   if (neighbor < 2u) { return (2.0 / 3.0) * (1.0 + cos2); }
   if (neighbor < 4u) { return (2.0 / 3.0) * (1.0 - cos2); }
   if (neighbor < 6u) { return (1.0 / 3.0) * (1.0 + sin2); }
   return (1.0 / 3.0) * (1.0 - sin2);
 }
 
-// 戻り値は water, pigment0, pigment1, pigment2。
-fn transfer(source: FluidCell, destination: FluidCell, sourceIndex: u32, targetIndex: u32, weight: f32) -> vec4<f32> {
-  let water = source.fluid.x;
-  let difference = water - destination.fluid.x;
+// source から destination へ運ばれる water, pigment0, pigment1, pigment2。
+fn transfer(
+  source: vec4<f32>,
+  destinationWater: f32,
+  destinationPermeability: f32,
+  sourceIndex: u32,
+  targetIndex: u32,
+  weight: f32,
+) -> vec4<f32> {
+  let water = source.x;
+  let difference = water - destinationWater;
   if (water <= ${CAP} || difference <= 0.0) {
     return vec4<f32>(0.0);
   }
   let amount = min(
-    ${DIFF} * destination.material.y * difference * randomFactor(sourceIndex, targetIndex) * weight,
+    ${DIFF} * destinationPermeability * difference * randomFactor(sourceIndex, targetIndex) * weight,
     water * 0.18 * weight
   );
-  let ratio = amount / water;
-  return vec4<f32>(amount, source.fluid.w * ratio, source.pigments.x * ratio, source.pigments.y * ratio);
+  return vec4<f32>(amount, source.yzw * (amount / water));
 }
 
 // 顔料の定着率。CPU 版 depositionRate と同じ式。
@@ -92,35 +113,57 @@ fn depositionRate(water: f32, gradient: f32) -> f32 {
   return min(${DEPOSIT_WET} + ${DEPOSIT_DRY} * dry * dry + ${EDGE_DEPOSIT} * edge, ${EDGE_RATE_MAX});
 }
 
-@compute @workgroup_size(${WORKGROUP_SIZE})
-fn diffuseAndSettle(@builtin(global_invocation_id) invocation: vec3<u32>) {
-  let count = info.size.x * info.size.y;
-  let i = invocation.x;
-  if (i >= count) { return; }
+@compute @workgroup_size(${TILE_SIZE}, ${TILE_SIZE})
+fn diffuseAndSettle(
+  @builtin(global_invocation_id) global: vec3<u32>,
+  @builtin(local_invocation_id) local: vec3<u32>,
+  @builtin(workgroup_id) group: vec3<u32>,
+) {
+  let size = vec2<i32>(info.size);
 
-  let x = i % info.size.x;
-  let y = i / info.size.x;
+  // タイル + 縁を共有メモリへ。324 セルを 256 スレッドで分担する。
+  let origin = vec2<i32>(group.xy * TILE) - vec2<i32>(1);
+  let localIndex = local.y * TILE + local.x;
+  for (var t = localIndex; t < HALO_CELLS; t += TILE * TILE) {
+    let position = origin + vec2<i32>(i32(t % HALO), i32(t / HALO));
+    var fluid = vec4<f32>(0.0);
+    var paper = vec4<f32>(0.0);
+    if (all(position >= vec2<i32>(0)) && all(position < size)) {
+      let cell = stateIn[u32(position.y) * info.size.x + u32(position.x)];
+      fluid = vec4<f32>(cell.fluid.x, cell.fluid.w, cell.pigments.x, cell.pigments.y);
+      paper = vec4<f32>(cell.material.y, cell.paper.y, cell.paper.z, 1.0);
+    }
+    tileFluid[t] = fluid;
+    tilePaper[t] = paper;
+  }
+  workgroupBarrier();
+
+  if (global.x >= info.size.x || global.y >= info.size.y) { return; }
+  let i = global.y * info.size.x + global.x;
   let current = stateIn[i];
-  var transported = vec4<f32>(current.fluid.x, current.fluid.w, current.pigments.x, current.pigments.y);
+  let center = (local.y + 1u) * HALO + local.x + 1u;
+  let currentFluid = tileFluid[center];
+  let currentPaper = tilePaper[center];
+  var transported = currentFluid;
   // CPU 版 NEIGHBOR_DX / NEIGHBOR_DY と同じ順序。先頭 4 つが軸方向。
   let offsets = array<vec2<i32>, 8>(
     vec2<i32>(-1, 0), vec2<i32>(1, 0), vec2<i32>(0, -1), vec2<i32>(0, 1),
     vec2<i32>(1, 1), vec2<i32>(-1, -1), vec2<i32>(1, -1), vec2<i32>(-1, 1)
   );
   // 軸方向の隣の水分。端は自分の値で代用し、中央差分で勾配を取る。
-  var axialWater = vec4<f32>(current.fluid.x);
+  var axialWater = vec4<f32>(currentFluid.x);
 
   for (var n = 0u; n < 8u; n++) {
-    let neighborPosition = vec2<i32>(i32(x), i32(y)) + offsets[n];
-    if (
-      neighborPosition.x < 0 || neighborPosition.y < 0 ||
-      neighborPosition.x >= i32(info.size.x) || neighborPosition.y >= i32(info.size.y)
-    ) { continue; }
+    let offset = offsets[n];
+    let neighborTile = u32(i32(center) + offset.y * i32(HALO) + offset.x);
+    let neighborPaper = tilePaper[neighborTile];
+    if (neighborPaper.w < 0.5) { continue; }
+    let neighborFluid = tileFluid[neighborTile];
+    let neighborPosition = vec2<i32>(global.xy) + offset;
     let j = u32(neighborPosition.y) * info.size.x + u32(neighborPosition.x);
-    let neighbor = stateIn[j];
-    if (n < 4u) { axialWater[n] = neighbor.fluid.x; }
-    transported += transfer(neighbor, current, j, i, fiberWeight(n, current))
-      - transfer(current, neighbor, i, j, fiberWeight(n, neighbor));
+    if (n < 4u) { axialWater[n] = neighborFluid.x; }
+    transported += transfer(neighborFluid, currentFluid.x, currentPaper.x, j, i, fiberWeight(n, currentPaper.y, currentPaper.z))
+      - transfer(currentFluid, neighborFluid.x, neighborPaper.x, i, j, fiberWeight(n, neighborPaper.y, neighborPaper.z));
   }
 
   var result = current;
@@ -156,11 +199,10 @@ fn sampleState(position: vec2<f32>) -> FluidCell {
   return sampled;
 }
 
-@compute @workgroup_size(${WORKGROUP_SIZE})
-fn advect(@builtin(global_invocation_id) invocation: vec3<u32>) {
-  let count = info.size.x * info.size.y;
-  let i = invocation.x;
-  if (i >= count) { return; }
+@compute @workgroup_size(${TILE_SIZE}, ${TILE_SIZE})
+fn advect(@builtin(global_invocation_id) global: vec3<u32>) {
+  if (global.x >= info.size.x || global.y >= info.size.y) { return; }
+  let i = global.y * info.size.x + global.x;
 
   let current = stateIn[i];
   let wetness = min(current.fluid.x * 3.5, 1.0);
@@ -168,7 +210,7 @@ fn advect(@builtin(global_invocation_id) invocation: vec3<u32>) {
   if (wetness >= 0.02) {
     let velocity = (current.fluid.yz + current.material.zw) * wetness;
     if (dot(velocity, velocity) >= 0.000001) {
-      let position = vec2<f32>(f32(i % info.size.x), f32(i / info.size.x));
+      let position = vec2<f32>(global.xy);
       let upper = vec2<f32>(info.size) - vec2<f32>(1.001);
       let sourcePosition = clamp(position - velocity, vec2<f32>(0.0), upper);
       let sampled = sampleState(sourcePosition);
@@ -191,13 +233,12 @@ fn operationNoise(index: u32, step: u32) -> f32 {
   return fract(sin(f32(index * 1103515245u + step * 12345u)) * 43758.5453);
 }
 
-@compute @workgroup_size(${WORKGROUP_SIZE})
-fn applyOperations(@builtin(global_invocation_id) invocation: vec3<u32>) {
-  let count = operationInfo.size.x * operationInfo.size.y;
-  let i = invocation.x;
-  if (i >= count) { return; }
+@compute @workgroup_size(${TILE_SIZE}, ${TILE_SIZE})
+fn applyOperations(@builtin(global_invocation_id) global: vec3<u32>) {
+  if (global.x >= operationInfo.size.x || global.y >= operationInfo.size.y) { return; }
+  let i = global.y * operationInfo.size.x + global.x;
 
-  let position = vec2<f32>(f32(i % operationInfo.size.x), f32(i / operationInfo.size.x));
+  let position = vec2<f32>(global.xy);
   var cell = operationState[i];
   for (var operationIndex = 0u; operationIndex < operationInfo.operationCount; operationIndex++) {
     let operation = operations[operationIndex];
@@ -235,7 +276,7 @@ fn applyOperations(@builtin(global_invocation_id) invocation: vec3<u32>) {
       let totalFrames = operation.a.w;
       let frontRow = min(operationInfo.size.y, u32(floor(f32(operationInfo.size.y) * time / sweepFrames)) + 2u);
       let pouring = time < totalFrames - 100.0;
-      if (u32(position.y) < frontRow) {
+      if (global.y < frontRow) {
         if (pouring && cell.fluid.x < 2.2) { cell.fluid.x += 0.13; }
         if (cell.fluid.z < 1.4) { cell.fluid.z += 0.13; }
         cell.fluid.y += (operationNoise(i, u32(time)) - 0.5) * 0.07 + cell.material.z * 0.5;
@@ -249,7 +290,7 @@ fn applyOperations(@builtin(global_invocation_id) invocation: vec3<u32>) {
         cell.pigments.x += moved.y;
         cell.pigments.y += moved.z;
       }
-      if (u32(position.y) + 3u >= operationInfo.size.y) {
+      if (global.y + 3u >= operationInfo.size.y) {
         cell.fluid.x *= 0.55;
         cell.fluid.w *= 0.5;
         cell.pigments.x *= 0.5;
@@ -295,6 +336,7 @@ export class WebGpuFluidSolver extends FluidSolver {
   private activeSteps = 0;
   private stateByteLength = 0;
   private version = 0;
+  private fieldRevision = 0;
 
   constructor(grid: FluidGrid, device: GpuDevice) {
     super(grid);
@@ -324,8 +366,18 @@ export class WebGpuFluidSolver extends FluidSolver {
     return this.stateBuffers[this.currentIndex];
   }
 
+  /** ステップごとに進む。描画側はこれで「どのバッファが最新か」を追う。 */
   public get stateVersion(): number {
     return this.version;
+  }
+
+  /**
+   * 紙の静的な場（紙目・繊維・浸透率）が置き換わった回数。
+   * 格子の作り直しと CPU からのアップロードでだけ進むので、描画側は
+   * これが変わった時にだけ紙のテクスチャを焼き直せばよい。
+   */
+  public get fieldVersion(): number {
+    return this.fieldRevision;
   }
 
   public override resize(width: number, height: number): void {
@@ -345,7 +397,7 @@ export class WebGpuFluidSolver extends FluidSolver {
       const pass = encoder.beginComputePass();
       pass.setPipeline(this.diffusePipeline);
       pass.setBindGroup(0, this.simulationBindGroups[this.currentIndex]);
-      pass.dispatchWorkgroups(Math.ceil(this.grid.N / WORKGROUP_SIZE));
+      this.dispatchGrid(pass);
       pass.end();
       this.swapState();
     }
@@ -367,7 +419,7 @@ export class WebGpuFluidSolver extends FluidSolver {
     const pass = encoder.beginComputePass();
     pass.setPipeline(this.advectPipeline);
     pass.setBindGroup(0, this.advectBindGroups[this.currentIndex]);
-    pass.dispatchWorkgroups(Math.ceil(this.grid.N / WORKGROUP_SIZE));
+    this.dispatchGrid(pass);
     pass.end();
     this.swapState();
     this.device.queue.submit([encoder.finish()]);
@@ -425,7 +477,7 @@ export class WebGpuFluidSolver extends FluidSolver {
     const pass = encoder.beginComputePass();
     pass.setPipeline(this.operationPipeline);
     pass.setBindGroup(0, this.operationBindGroups[this.currentIndex]);
-    pass.dispatchWorkgroups(Math.ceil(this.grid.N / WORKGROUP_SIZE));
+    this.dispatchGrid(pass);
     pass.end();
     this.device.queue.submit([encoder.finish()]);
   }
@@ -471,6 +523,14 @@ export class WebGpuFluidSolver extends FluidSolver {
       : 0;
     this.wet = this.activeSteps > 0 ? 1 : 0;
     this.version++;
+    this.fieldRevision++;
+  }
+
+  private dispatchGrid(pass: { dispatchWorkgroups: (x: number, y?: number, z?: number) => void }): void {
+    pass.dispatchWorkgroups(
+      Math.ceil(this.grid.gw / TILE_SIZE),
+      Math.ceil(this.grid.gh / TILE_SIZE),
+    );
   }
 
   private allocateState(): void {
@@ -489,6 +549,7 @@ export class WebGpuFluidSolver extends FluidSolver {
     this.device.queue.writeBuffer(this.stateBuffers[1], 0, initial);
     this.rebuildBindGroups();
     this.version++;
+    this.fieldRevision++;
   }
 
   private rebuildBindGroups(): void {
