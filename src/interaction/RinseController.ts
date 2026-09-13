@@ -1,6 +1,7 @@
 import type { FluidSolver } from '../physics/FluidSolver.ts';
+import { RinseEffects } from './RinseEffects.ts';
 
-/** style.css の .rinse.is-holding::before の transition 時間と揃える。 */
+/** 長押しでタンクが満水になるまでの時間。 */
 const HOLD_DURATION_MS = 900;
 /** 短いタップの後に長押しの案内を出しておく時間。 */
 const TIP_DURATION_MS = 3000;
@@ -16,6 +17,8 @@ export class RinseController {
   private enabled = true;
   private readonly button: HTMLButtonElement | null;
   private readonly tip: HTMLElement | null;
+  private readonly effects: RinseEffects;
+  private effectsActive = false;
   private holdTimer: ReturnType<typeof setTimeout> | undefined;
   private holdPointerId: number | null = null;
   private tipTimer: ReturnType<typeof setTimeout> | undefined;
@@ -30,6 +33,7 @@ export class RinseController {
     this.renderFn = renderFn;
     this.button = document.getElementById('rinse') as HTMLButtonElement | null;
     this.tip = document.getElementById('rinseTip');
+    this.effects = new RinseEffects();
     this.initEvents();
   }
 
@@ -91,24 +95,36 @@ export class RinseController {
 
   private startHold(): void {
     this.button?.classList.add('is-holding');
+    if (!this.reduceMotion) this.effects.fill(HOLD_DURATION_MS);
     this.holdTimer = setTimeout(() => {
-      this.cancelHold();
-      this.begin();
+      this.endHold();
+      this.begin(true);
     }, HOLD_DURATION_MS);
   }
 
-  private begin(): void {
+  /** キーボードからは直接、長押しからは満水→溢れを経て流し始める。 */
+  private begin(overflowed = false): void {
     if (!this.enabled || this.rinsing) return;
     this.hideTip();
     if (this.reduceMotion) {
+      this.effects.reset();
       this.solver.clearAll();
       this.renderFn();
-    } else {
-      this.rinsing = 1;
+      return;
     }
+    if (overflowed) this.effects.overflow();
+    this.rinsing = 1;
+    this.effectsActive = true;
   }
 
+  /** 満ちる前に中断された長押しを片付ける。水面は揺れてから沈む。 */
   public cancelHold(): void {
+    const interrupted = this.holdTimer !== undefined;
+    this.endHold();
+    if (interrupted && !this.reduceMotion) this.effects.slosh();
+  }
+
+  private endHold(): void {
     if (this.holdTimer !== undefined) {
       clearTimeout(this.holdTimer);
       this.holdTimer = undefined;
@@ -140,12 +156,24 @@ export class RinseController {
   }
 
   public step(): void {
-    if (!this.rinsing) return;
+    if (!this.rinsing) {
+      // 待機画面やリサイズが rinsing を直接 0 にした時も、残った水を片付ける
+      if (this.effectsActive) this.stopEffects();
+      return;
+    }
+    if (!this.effectsActive) this.effectsActive = true;
+    this.effects.rinseProgress(this.rinsing, this.R_SWEEP, this.R_TOTAL);
     this.solver.rinseStep(this.rinsing, this.R_SWEEP, this.R_TOTAL);
     if (++this.rinsing > this.R_TOTAL) {
       this.solver.clearAll();
       this.rinsing = 0;
+      this.stopEffects();
     }
+  }
+
+  private stopEffects(): void {
+    this.effectsActive = false;
+    this.effects.finishRinse();
   }
 
   public setEnabled(enabled: boolean): void {

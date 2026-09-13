@@ -11,6 +11,7 @@
 <body>
     <canvas id="paper"></canvas>
     <canvas id="inkLayer"></canvas>
+    <div class="rinse-front" id="rinseFront" aria-hidden="true"></div>
 
     <div class="title">墨戯</div>
     <div class="hint" id="hint"><span>紙に触れてください</span></div>
@@ -23,9 +24,17 @@
 
     <div class="rinse-area">
         <button class="rinse" id="rinse" aria-label="水で洗い流す（長押し）" title="長押しで水を流します">
+            <span class="rinse__tank" aria-hidden="true">
+                <span class="rinse__water">
+                    <svg class="rinse__wave" viewBox="0 0 48 8" preserveAspectRatio="none">
+                        <path d="M0 4 Q6 0 12 4 T24 4 T36 4 T48 4 V8 H0 Z" />
+                    </svg>
+                </span>
+            </span>
             <span class="rinse__label">水で洗い流す</span>
             <small class="rinse__sub">長押し</small>
         </button>
+        <div class="rinse-spill" aria-hidden="true"></div>
         <p class="rinse-tip" id="rinseTip" role="status" aria-live="polite"></p>
     </div>
 

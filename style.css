@@ -76,6 +76,33 @@ canvas {
     50% { opacity: 1; }
 }
 
+/* 墨の上でも文字が沈まないよう、紙色の光暈を背後に敷く。
+   画面の角の和紙に近い色を柔らかくぼかすので、白紙の上ではほぼ目立たない */
+.rinse::before,
+.share-card-button::before {
+    content: "";
+    position: absolute;
+    inset: -34px -30px;
+    z-index: -1;
+    border-radius: 50%;
+    background: radial-gradient(
+        ellipse closest-side,
+        rgba(234, 228, 213, .92) 0%,
+        rgba(234, 228, 213, .86) 55%,
+        rgba(234, 228, 213, 0) 100%
+    );
+    pointer-events: none;
+}
+
+.title,
+.rinse,
+.share-card-button,
+.rinse-tip {
+    text-shadow:
+        0 0 3px rgba(242, 237, 225, .9),
+        0 0 9px rgba(242, 237, 225, .7);
+}
+
 /* 色を選ぶ: 皿に出した絵の具 */
 .palette {
     position: fixed;
@@ -128,7 +155,8 @@ canvas {
 }
 
 /* 水で洗い流す: 誤タップで作品を失わないよう、長押しで水が満ちてから流れる。
-   初見でも分かるよう、ボタンに「長押し」を添え、短く離した時は案内を出す。 */
+   初見でも分かるよう、ボタンに「長押し」を添え、短く離した時は案内を出す。
+   ボタンはタンク。水位・波・溢れ・前線の動きは RinseEffects（motion）が付ける。 */
 .rinse-area {
     position: fixed;
     left: max(22px, env(safe-area-inset-left));
@@ -160,8 +188,12 @@ canvas {
     border-right: 1px solid rgba(27, 27, 32, .4);
     cursor: pointer;
     transition: color .4s;
-    overflow: hidden;
     -webkit-touch-callout: none;
+}
+
+.rinse__label, .rinse__sub {
+    position: relative;
+    z-index: 1;
 }
 
 .rinse__sub {
@@ -170,27 +202,88 @@ canvas {
     color: inherit;
 }
 
-/* 押している間に水が満ち、途中で離すと引いていく */
-.rinse::before {
-    content: "";
+/* タンク。空の時に下へ退いた水を切る */
+.rinse__tank {
     position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 0%;
-    background: rgba(31, 63, 116, .2);
+    inset: 0;
+    overflow: hidden;
     pointer-events: none;
-    transition: height .45s ease-out;
 }
 
-/* RinseController の HOLD_DURATION_MS と揃える */
+/* タンクの水。translateY(100%) で空、0 で満水 */
+.rinse__water {
+    position: absolute;
+    inset: 0;
+    background: rgba(31, 63, 116, .2);
+    transform: translateY(calc(100% + 8px));
+    will-change: transform;
+    pointer-events: none;
+}
+
+/* 水面。ボタン幅の 2 倍を横に流して波にする */
+.rinse__wave {
+    position: absolute;
+    left: 0;
+    top: -7px;
+    width: 200%;
+    height: 8px;
+    fill: rgba(31, 63, 116, .2);
+    transform-origin: bottom;
+    transform: scaleY(.6);
+    display: block;
+}
+
 .rinse.is-holding {
     color: rgba(27, 27, 32, .85);
 }
 
-.rinse.is-holding::before {
-    height: 100%;
-    transition: height .9s linear;
+/* 溢れた水滴と、紙に落ちた波紋 */
+.rinse-spill {
+    position: absolute;
+    inset: 0;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.rinse-drop {
+    position: absolute;
+    width: 5px;
+    height: 7px;
+    margin: -4px 0 0 -2px;
+    border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%;
+    background: rgba(31, 63, 116, .45);
+    opacity: 0;
+}
+
+.rinse-ripple {
+    position: absolute;
+    width: 26px;
+    height: 12px;
+    margin: -6px 0 0 -13px;
+    border-radius: 50%;
+    border: 1px solid rgba(31, 63, 116, .6);
+    opacity: 0;
+}
+
+/* 紙の上を降りていく水の帯。物理の前線に合わせて RinseEffects が動かす */
+.rinse-front {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 14vh;
+    z-index: 2;
+    background: linear-gradient(
+        to bottom,
+        rgba(31, 63, 116, 0) 0%,
+        rgba(31, 63, 116, .07) 45%,
+        rgba(60, 96, 150, .14) 62%,
+        rgba(31, 63, 116, 0) 100%
+    );
+    opacity: 0;
+    transform: translateY(-14vh);
+    will-change: transform, opacity;
+    pointer-events: none;
 }
 
 .rinse:hover, .rinse:focus-visible {
@@ -204,6 +297,10 @@ canvas {
 
 /* 短いタップの後に出す案内。ボタンの隣に、水と同じ藍で */
 .rinse-tip {
+    text-shadow:
+        0 0 3px rgba(242, 237, 225, 1),
+        0 0 8px rgba(242, 237, 225, .95),
+        0 0 16px rgba(242, 237, 225, .8);
     writing-mode: vertical-rl;
     font-size: 12px;
     letter-spacing: .35em;
@@ -440,7 +537,7 @@ canvas {
         opacity: .7;
     }
 
-    /* 水が満ちる進み具合は操作の手がかりなので残し、案内の移動だけ止める */
+    /* 水位や波は RinseController 側で止める。案内の移動だけここで止める */
     .rinse-tip {
         transform: none;
         transition: opacity .35s ease;

@@ -25,6 +25,7 @@
 | [`src/renderer/InkRenderer.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/renderer/InkRenderer.ts) | Lambert-Beer減法混色計算と低解像度 Offscreen Canvas 転送描画クラス |
 | [`src/interaction/InputController.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/interaction/InputController.ts) | Pointer Capture・ポインター入力・ストローク運動量付与制御クラス |
 | [`src/interaction/RinseController.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/interaction/RinseController.ts) | 水洗い機能の前線波・顔料再溶解アニメーション制御クラス |
+| [`src/interaction/RinseEffects.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/interaction/RinseEffects.ts) | 洗い流すボタンのタンク水位・波・溢れ・前線の帯（`motion` による DOM 演出） |
 | [`src/main.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/main.ts) | アプリケーションのエントリポイント、全モジュールの初期化とメインループ (rAF) |
 | [`tsconfig.json`](file:///Users/juna1013/bin/practice/BOKUGI/tsconfig.json) | TypeScript 設定 (`strict: true`, `noImplicitAny: true`, `strictNullChecks: true`) |
 | [`docs/design.md`](file:///Users/juna1013/bin/practice/BOKUGI/docs/design.md) | 本設計ドキュメント |
@@ -179,7 +180,8 @@
 画面左下の「水で洗い流す」ボタンを長押し（900ms）すると、和紙全体に上から水波が押し寄せるアニメーションが始まります。一発勝負の作品を誤タップで失わないための所作ですが、初見でも分かるよう次の手がかりを重ねています。
 
 - ボタンに「長押し」の副ラベルを常時添える。
-- 押している間、ボタンに水が満ちていく（CSS transition）。途中で離すと水が引いていき、「押し続ければ満ちる」ことが目で分かる。
+- 押している間、ボタンをタンクに見立てて水位が上がる（`RinseEffects`、`motion` の MotionValue 駆動）。途中で離すと水面が spring で揺れてから沈み、「押し続ければ満ちる」ことが目で分かる。
+- 満水になると縁から水滴が数粒こぼれ（stagger）、紙に落ちて波紋を残してから `rinsing` が始まる。前線の降下に合わせて画面上端から藍の帯が降り、タンクの水位は注水の進みに合わせて下がる。
 - 短くタップして離した時は、ボタンの隣に「長押しで 水が流れます」と案内を約3秒出す（`role="status"` で支援技術にも通知）。
 - 展示モードの待機デモでは、一巡の終わりに「長押しで 水に流す」の案内と同時にボタンの水満ちを再生してから流す。
 - キーボード操作（Enter / Space）は意図せず押すことがないため即座に始める。
@@ -192,6 +194,7 @@
 
 - **和風タイポグラフィ**: `Hiragino Mincho ProN`, `Yu Mincho`, `Noto Serif JP` などの明朝体フォントを指定。
 - **縦書きレイアウト**: CSS `writing-mode: vertical-rl;` を利用し、タイトル「墨戯」や案内テキスト「紙に触れてください」を風情ある縦書きで表示。
+- **墨の上での可読性**: 「水で洗い流す」「作品を残す」の背後に、画面の角の和紙に近い色（`rgba(234,228,213)`）の楕円の光暈を `::before` で敷き、文字には紙色の `text-shadow` を付ける。白紙の上ではほぼ見えず、濃く塗った上でも文字が沈まない。
 - **伝統色パレット**: 皿に出した絵の具を模した丸型ボタン。アクティブ状態では立体的な2重リング枠線（`box-shadow`）を表示。
 
 ---
