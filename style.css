@@ -354,6 +354,7 @@ canvas {
     width: min(420px, 92vw);
     max-width: min(420px, 92vw);
     max-height: 88vh;
+    max-height: 90dvh;
     color: rgba(27, 27, 32, .85);
     border-radius: 14px;
 
@@ -390,9 +391,17 @@ canvas {
     padding: 26px 24px 22px;
     box-shadow: 0 8px 40px rgba(27, 27, 32, .35);
     max-height: 88vh;
+    max-height: 90dvh;
     overflow-y: auto;
     /* スクロールしても角の丸みを保つ */
     border-radius: 14px;
+    /* 作品以外の項目を先に確保し、作品は余った高さに縮む */
+    display: flex;
+    flex-direction: column;
+}
+
+.share-dialog__content > * {
+    flex: none;
 }
 
 .share-dialog__close {
@@ -422,13 +431,22 @@ canvas {
     margin-bottom: 16px;
 }
 
+/* スワイプせずに全項目が収まるよう、作品は余った高さに縮む（上限 40dvh）。
+   aspect-ratio は ShareCardController が作品の向きに合わせて上書きする */
 .share-dialog__preview {
     display: block;
-    width: 100%;
+    flex: 1 1 auto;
+    min-height: 120px;
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 40vh;
+    max-height: 40dvh;
+    align-self: center;
     aspect-ratio: 1080 / 1350;
     object-fit: contain;
     background: rgba(27, 27, 32, .05);
-    margin-bottom: 18px;
+    margin: 0 auto 18px;
 }
 
 .share-dialog__profile {
@@ -461,7 +479,12 @@ canvas {
     margin: 0;
 }
 
-.share-dialog__profile > label:not(.share-dialog__toggle) {
+/* 作者名の欄は「作者名を掲載する」を ON にした時だけ現れる */
+.share-dialog__name[hidden] {
+    display: none;
+}
+
+.share-dialog__name label {
     display: block;
     font-size: 11px;
     letter-spacing: .2em;
@@ -529,6 +552,100 @@ canvas {
     color: rgba(27, 27, 32, .5);
     margin-top: 12px;
     min-height: 1.7em;
+}
+
+/* 背の低い端末（iPhone SE など）では余白も詰めて一画面に収める */
+@media (max-height: 720px) {
+    .share-dialog__content {
+        padding: 20px 20px 16px;
+    }
+
+    .share-dialog h2 {
+        margin-bottom: 10px;
+    }
+
+    .share-dialog__preview {
+        max-height: 34vh;
+        max-height: 34dvh;
+        margin-bottom: 12px;
+    }
+
+    .share-dialog__profile {
+        padding-top: 10px;
+        margin-bottom: 12px;
+    }
+
+    .share-dialog__toggle {
+        min-height: 40px;
+        margin: 2px 0 6px;
+    }
+
+    .share-dialog__profile input[type="text"],
+    .share-dialog__profile input[type="url"] {
+        min-height: 42px;
+        padding: 7px 11px;
+        margin-bottom: 8px;
+    }
+
+    .share-dialog__note {
+        font-size: 10.5px;
+        line-height: 1.55;
+    }
+
+    .share-dialog__actions button {
+        min-height: 44px;
+        padding: 10px 8px;
+    }
+
+    .share-dialog__status {
+        margin-top: 8px;
+    }
+}
+
+/* 横向きの端末では縦に並べると収まらないので、作品を左、項目を右に置く */
+@media (orientation: landscape) and (max-height: 500px) {
+    .share-dialog {
+        width: min(720px, 94vw);
+        max-width: min(720px, 94vw);
+    }
+
+    .share-dialog__content {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        grid-template-rows: auto auto auto 1fr;
+        column-gap: 22px;
+        padding: 16px 20px 14px;
+    }
+
+    .share-dialog__content > * {
+        grid-column: 2;
+    }
+
+    .share-dialog__preview {
+        grid-column: 1;
+        grid-row: 1 / span 4;
+        align-self: start;
+        /* 高さと幅の両方に上限を掛け、比率通りに縮める（枠だけ余らせない） */
+        height: auto;
+        width: auto;
+        max-height: calc(90dvh - 30px);
+        max-width: 42vw;
+        min-height: 0;
+        margin: 0;
+    }
+
+    .share-dialog h2 {
+        margin-bottom: 8px;
+    }
+
+    .share-dialog__profile {
+        margin-bottom: 8px;
+    }
+
+    .share-dialog__status {
+        align-self: end;
+        margin-top: 6px;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {

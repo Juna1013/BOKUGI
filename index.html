@@ -56,9 +56,11 @@
                     <span>作者名を掲載する</span>
                 </label>
 
-                <label for="creatorName">作者名</label>
-                <input type="text" id="creatorName" maxlength="24" autocomplete="nickname"
-                    placeholder="例：墨野 花子">
+                <div class="share-dialog__name" id="creatorNameField" hidden>
+                    <label for="creatorName">作者名</label>
+                    <input type="text" id="creatorName" maxlength="24" autocomplete="nickname"
+                        placeholder="例：墨野 花子">
+                </div>
 
                 <p class="share-dialog__note" id="creatorProfileNote">
                     掲載をONにすると、作者名がカードの右下に入ります。<br>

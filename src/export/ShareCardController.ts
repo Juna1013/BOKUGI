@@ -24,6 +24,7 @@ export class ShareCardController {
 
   private readonly nameInput: HTMLInputElement;
   private readonly showProfileToggle: HTMLInputElement;
+  private readonly nameField: HTMLElement;
 
   private preparedFile: File | null = null;
   private artwork: ArtworkSnapshot | null = null;
@@ -50,6 +51,7 @@ export class ShareCardController {
 
     this.nameInput = this.require<HTMLInputElement>('creatorName');
     this.showProfileToggle = this.require<HTMLInputElement>('showProfileToggle');
+    this.nameField = this.require<HTMLElement>('creatorNameField');
 
     this.profile = this.store.load();
     this.applyProfileToForm();
@@ -89,7 +91,13 @@ export class ShareCardController {
 
     // プロフィールを変更したらカードを作り直す
     this.nameInput.addEventListener('change', () => void this.onProfileChanged());
-    this.showProfileToggle.addEventListener('change', () => void this.onProfileChanged());
+    this.showProfileToggle.addEventListener('change', () => {
+      const focusName = this.showProfileToggle.checked;
+      // フォームの更新は最初の await より前に同期的に済むので、
+      // カードの作り直しを待たずに、現れた欄へフォーカスを移せる
+      void this.onProfileChanged();
+      if (focusName) this.nameInput.focus();
+    });
 
     window.addEventListener('pagehide', () => this.releaseCardSession());
   }
@@ -100,8 +108,11 @@ export class ShareCardController {
     this.updateProfileFieldState();
   }
 
+  /** 作者名の欄は掲載が ON の時だけ表示する。OFF の間は入力もできない。 */
   private updateProfileFieldState(): void {
-    this.nameInput.disabled = !this.showProfileToggle.checked;
+    const show = this.showProfileToggle.checked;
+    this.nameField.hidden = !show;
+    this.nameInput.disabled = !show;
   }
 
   private readProfileFromForm(): CreatorProfile {
