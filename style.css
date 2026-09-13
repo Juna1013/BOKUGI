@@ -4,8 +4,15 @@
     box-sizing: border-box;
 }
 
+/* 書体: 見出し・所作の文言は筆文字、ダイアログの本文は古風な明朝。
+   Web フォントが届く前や失敗時は、端末の明朝体に落ちる */
+:root {
+    --font-mincho: "Shippori Mincho", "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
+    --font-brush: "Yuji Syuku", "Shippori Mincho", "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
+}
+
 html, body {
-    font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
+    font-family: var(--font-mincho);
     touch-action: none;
     -webkit-user-select: none;
     user-select: none;
@@ -35,7 +42,8 @@ canvas {
     right: max(22px, env(safe-area-inset-right));
     z-index: 3;
     writing-mode: vertical-rl;
-    font-size: 15px;
+    font-family: var(--font-brush);
+    font-size: 17px;
     letter-spacing: .7em;
     color: rgba(27, 27, 32, .55);
     pointer-events: none;
@@ -65,7 +73,8 @@ canvas {
 
 .hint span {
     writing-mode: vertical-rl;
-    font-size: 17px;
+    font-family: var(--font-brush);
+    font-size: 18px;
     letter-spacing: .55em;
     color: rgba(27, 27, 32, .35);
     animation: breathe 4s ease-in-out infinite;
@@ -98,6 +107,7 @@ canvas {
 .rinse,
 .share-card-button,
 .rinse-tip {
+    font-family: var(--font-brush);
     text-shadow:
         0 0 3px rgba(242, 237, 225, .9),
         0 0 9px rgba(242, 237, 225, .7);
@@ -121,8 +131,8 @@ canvas {
     border-radius: 50%;
     border: none;
     cursor: pointer;
-    font-family: inherit;
-    font-size: 15px;
+    font-family: var(--font-brush);
+    font-size: 16px;
     color: rgba(242, 237, 225, .92);
     display: flex;
     align-items: center;
@@ -176,8 +186,8 @@ canvas {
     display: inline-flex;
     align-items: center;
     gap: 12px;
-    font-family: inherit;
-    font-size: 14px;
+    font-family: var(--font-brush);
+    font-size: 15px;
     letter-spacing: .5em;
     min-width: 48px;
     min-height: 48px;
@@ -297,6 +307,7 @@ canvas {
 
 /* 短いタップの後に出す案内。ボタンの隣に、水と同じ藍で */
 .rinse-tip {
+    font-family: var(--font-brush);
     text-shadow:
         0 0 3px rgba(242, 237, 225, 1),
         0 0 8px rgba(242, 237, 225, .95),
@@ -324,8 +335,8 @@ canvas {
     bottom: max(22px, env(safe-area-inset-bottom));
     z-index: 3;
     writing-mode: vertical-rl;
-    font-family: inherit;
-    font-size: 14px;
+    font-family: var(--font-brush);
+    font-size: 15px;
     letter-spacing: .5em;
     min-width: 48px;
     min-height: 48px;
@@ -424,7 +435,8 @@ canvas {
 }
 
 .share-dialog h2 {
-    font-size: 15px;
+    font-family: var(--font-brush);
+    font-size: 17px;
     font-weight: normal;
     letter-spacing: .4em;
     color: rgba(27, 27, 32, .6);
@@ -457,7 +469,8 @@ canvas {
 }
 
 .share-dialog__profile legend {
-    font-size: 12px;
+    font-family: var(--font-brush);
+    font-size: 13px;
     letter-spacing: .3em;
     color: rgba(27, 27, 32, .5);
     padding: 0 8px 0 0;

@@ -192,7 +192,7 @@
 
 ### 5.3 デザインシステム & ビジュアル表現
 
-- **和風タイポグラフィ**: `Hiragino Mincho ProN`, `Yu Mincho`, `Noto Serif JP` などの明朝体フォントを指定。
+- **和風タイポグラフィ**: Google Fonts の筆文字 `Yuji Syuku` をタイトル・案内・ボタン・ダイアログ見出し・カードの題字と落款に、古風な明朝 `Shippori Mincho` をダイアログ本文に使う（`--font-brush` / `--font-mincho`）。取得できない環境では `Hiragino Mincho ProN`, `Yu Mincho`, `Noto Serif JP` などの端末の明朝体に落ちる。Canvas は Web フォントを自動では待たないため、`CardExporter` は描画前に `document.fonts.load` で題字の書体を読み込む。
 - **縦書きレイアウト**: CSS `writing-mode: vertical-rl;` を利用し、タイトル「墨戯」や案内テキスト「紙に触れてください」を風情ある縦書きで表示。
 - **墨の上での可読性**: 「水で洗い流す」「作品を残す」の背後に、画面の角の和紙に近い色（`rgba(234,228,213)`）の楕円の光暈を `::before` で敷き、文字には紙色の `text-shadow` を付ける。白紙の上ではほぼ見えず、濃く塗った上でも文字が沈まない。
 - **伝統色パレット**: 皿に出した絵の具を模した丸型ボタン。アクティブ状態では立体的な2重リング枠線（`box-shadow`）を表示。

@@ -19,6 +19,7 @@
 - Vite 5
 - WebGPU（顔料の光学計算・格子補間）を優先利用し、Canvas 2D API に自動フォールバック
 - 実行時依存は [`motion`](https://motion.dev)（UI 演出のみ。物理・描画は自前）
+- 書体は Google Fonts の筆文字 [Yuji Syuku](https://fonts.google.com/specimen/Yuji+Syuku) と明朝 [Shippori Mincho](https://fonts.google.com/specimen/Shippori+Mincho)（届かない環境では端末の明朝体に落ちる）
 
 ## セットアップ
 

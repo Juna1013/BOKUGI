@@ -14,7 +14,9 @@ export interface CardOptions {
   profile?: CreatorProfile;
 }
 
-const SERIF = '"Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif';
+/** style.css の --font-brush と揃える。カードの題字・落款・作者名は筆文字で描く。 */
+const BRUSH = '"Yuji Syuku", "Shippori Mincho", "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif';
+const BRUSH_FONTS = [`52px ${BRUSH}`, `30px ${BRUSH}`];
 
 export class CardExporter {
   constructor(
@@ -99,6 +101,7 @@ export class CardExporter {
   }
 
   public async createFile(options: CardOptions, artwork: ArtworkSnapshot): Promise<File> {
+    await this.ensureFonts();
     const canvas = this.compose(options, artwork);
 
     const blob = await new Promise<Blob>((resolve, reject) => {
@@ -111,6 +114,17 @@ export class CardExporter {
     return new File([blob], `bokugi-${this.dateString(options.date)}.png`, {
       type: 'image/png',
     });
+  }
+
+  /**
+   * Canvas は Web フォントを自動では待たないので、題字に使う書体を先に読み込む。
+   * 取得できない環境（オフラインなど）では端末の明朝体で描く。
+   */
+  private async ensureFonts(): Promise<void> {
+    if (!('fonts' in document)) return;
+    try {
+      await Promise.all(BRUSH_FONTS.map((font) => document.fonts.load(font, '墨戯')));
+    } catch (_) {}
   }
 
   private assertCanvasSize(
@@ -157,7 +171,7 @@ export class CardExporter {
     options: CardOptions,
   ): void {
     ctx.fillStyle = '#27262a';
-    ctx.font = `52px ${SERIF}`;
+    ctx.font = `52px ${BRUSH}`;
     ctx.fillText(options.title, 72, options.height - 78);
 
     // 落款
@@ -165,7 +179,7 @@ export class CardExporter {
     ctx.fillRect(options.width - 132, options.height - 132, 60, 60);
 
     ctx.fillStyle = '#f2ede1';
-    ctx.font = `30px ${SERIF}`;
+    ctx.font = `30px ${BRUSH}`;
     ctx.textAlign = 'center';
     ctx.fillText('戯', options.width - 102, options.height - 91);
     ctx.textAlign = 'start';
@@ -185,7 +199,7 @@ export class CardExporter {
 
     ctx.textAlign = 'right';
     ctx.fillStyle = '#27262a';
-    ctx.font = `30px ${SERIF}`;
+    ctx.font = `30px ${BRUSH}`;
     ctx.fillText(profile.displayName.trim(), right, baseline, right - 260);
     ctx.textAlign = 'start';
   }
