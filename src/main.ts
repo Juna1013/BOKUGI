@@ -6,6 +6,7 @@ import { InkRenderer } from './renderer/InkRenderer.ts';
 import { WebGpuInkRenderer } from './renderer/WebGpuInkRenderer.ts';
 import { InputController } from './interaction/InputController.ts';
 import { RinseController } from './interaction/RinseController.ts';
+import { FlowController } from './interaction/FlowController.ts';
 import { CardExporter } from './export/CardExporter.ts';
 import { ShareCardController } from './export/ShareCardController.ts';
 import {
@@ -86,6 +87,7 @@ void (async () => {
     reduceMotion,
     renderAll,
   );
+  const flowController = new FlowController(solver, reduceMotion);
   let attractController: AttractController | null = null;
   const simulationCoordinator = new SimulationCoordinator((busy) => {
     simulationBusy = busy;
@@ -173,7 +175,10 @@ void (async () => {
   // 墨の所作を自動再生して次の来場者を待つ。
   if (exhibitionMode && !reduceMotion) {
     attractController = new AttractController(solver, rinseController, inkCv, renderAll, {
-      onEnter: () => shareCardController.resetSession(),
+      onEnter: () => {
+        shareCardController.resetSession();
+        flowController.set(false);
+      },
     });
   }
 
@@ -245,6 +250,7 @@ void (async () => {
       solver.runSteps(SUB);
       solver.advect();
       rinseController.step();
+      flowController.step(rinseController.rinsing > 0);
 
       if (solver.wet > 0 || rinseController.rinsing > 0 || inputController.down) {
         renderAll();

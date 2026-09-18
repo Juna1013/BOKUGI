@@ -29,6 +29,35 @@ export const EDGE_WATER_FLOOR: number = 0.02;
 export const EDGE_RATE_MAX: number = 0.03;
 
 /**
+ * 流し書き。紙に薄く水を張り、濡れている墨を一定の流れで運びながら書く。
+ * FLOW_VELOCITY はセル/フレーム。x が負なら左へ流れる。
+ * 濡れたセルの速度を毎フレーム FLOW_RELAX の割合で流れへ寄せ、
+ * 下流の縁 FLOW_SINK_CELLS セルで水と浮遊顔料を吸い取る（定着した墨は残す）。
+ */
+export const FLOW_VELOCITY: readonly [number, number] = [-0.8, 0];
+export const FLOW_RELAX: number = 0.12;
+/** 流れに直交する向きの揺らぎ。一様な流れだと墨が定規で引いたような帯になるので、筋を乱す。 */
+export const FLOW_JITTER: number = 0.07;
+/**
+ * 入の間の顔料の定着率の倍率。流れる墨が通り道に定着すると四角い染みが残るので、
+ * 流れている間は浮かせたままにし、切にした時に紙に残っている墨を落ち着かせる。
+ */
+export const FLOW_DEPOSIT_SCALE: number = 0.03;
+/**
+ * 入の間、紙全体に張っておく水の量。移流は濡れたセルにしか効かないので、
+ * 墨が渡っていく先を先に濡らしておかないと、墨は進めずに上流側から減るだけになる
+ * （洗い流しで墨が流れるのも、前線が紙を先に濡らしているから）。
+ * 0.3 で移流の重み min(w·3.5, 1) が 1 になる。
+ */
+export const FLOW_WATER_FLOOR: number = 0.3;
+export const FLOW_SINK_CELLS: number = 3;
+export const FLOW_SINK_WATER: number = 0.55;
+export const FLOW_SINK_PIGMENT: number = 0.5;
+/** 切にした後、張っていた水を引かせるフレーム数と、1 フレームあたりの水の残存率。 */
+export const FLOW_DRAIN_FRAMES: number = 90;
+export const FLOW_DRY_FACTOR: number = 0.95;
+
+/**
  * 顔料の吸収係数 [R, G, B]
  * 0: 墨 (Sumi), 1: 朱 (Vermilion), 2: 藍 (Indigo)
  */
