@@ -49,11 +49,34 @@ canvas {
     pointer-events: none;
 }
 
-.title small {
-    font-size: 9px;
-    letter-spacing: .4em;
+/* 出典への印: 題字の真下に、墨と同じ一色で小さく置く。
+   触れられるのはこの印だけで、題字そのものは紙への落墨を妨げない */
+.title__repo {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-top: 2px;
+    writing-mode: horizontal-tb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
     color: rgba(27, 27, 32, .3);
-    margin-top: 1.2em;
+    pointer-events: auto;
+    transition: color .35s ease;
+}
+
+.title__repo svg {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
+}
+
+.title__repo:hover,
+.title__repo:focus-visible {
+    color: rgba(27, 27, 32, .7);
 }
 
 .hint {
@@ -88,7 +111,8 @@ canvas {
 /* 墨の上でも文字が沈まないよう、紙色の光暈を背後に敷く。
    画面の角の和紙に近い色を柔らかくぼかすので、白紙の上ではほぼ目立たない */
 .rinse::before,
-.share-card-button::before {
+.share-card-button::before,
+.title__repo::before {
     content: "";
     position: absolute;
     inset: -34px -30px;
