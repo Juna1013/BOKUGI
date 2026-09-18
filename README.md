@@ -92,6 +92,8 @@ src/
     ├── CardExporter.ts           カード合成と PNG File の生成
     ├── CreatorProfile.ts         作者名の保存・読み出し（localStorage）
     └── ShareCardController.ts    共有ダイアログの制御・Web Share 連携
+scripts/
+└── fps-bench.mjs                 headless Chrome でのフレームレート計測（docs/frame-rate.md）
 ```
 
 ## 設計上の要点
@@ -143,6 +145,8 @@ WebGPU が使えない環境（および SwiftShader などのソフトウェア
 - [docs/add-design.md](docs/add-design.md) — 拡張設計方針。PNG カード書き出し、洋の絵の具への顔料モデル一般化、WebGL 移行の検討。
 - [docs/exhibition-todo.md](docs/exhibition-todo.md) — 技育博2026に向けた展示体験の実装TODOと本番前チェックリスト。
 - [docs/exhibition-spec.md](docs/exhibition-spec.md) — 展示モード、Cloudflare保存基盤、保持期限、ギャラリー公開方針の確定仕様。
+- [docs/testing.md](docs/testing.md) — 単体テストの構成と検証内容、実行結果。
+- [docs/frame-rate.md](docs/frame-rate.md) — WebGPU / Canvas 2D 各経路のフレームレート実測と計測方法。
 
 ## 動作環境
 
