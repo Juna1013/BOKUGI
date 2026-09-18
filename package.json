@@ -9,11 +9,14 @@
     "preview": "vite preview",
     "check": "tsc --noEmit",
     "deploy": "npm run build && wrangler deploy",
-    "preview:worker": "npm run build && wrangler dev"
+    "preview:worker": "npm run build && wrangler dev",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "typescript": "^5.4.0",
     "vite": "^5.2.0",
+    "vitest": "^3.2.7",
     "wrangler": "^4.125.0"
   },
   "dependencies": {

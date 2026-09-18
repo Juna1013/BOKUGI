@@ -35,6 +35,8 @@ npm run dev      # 開発サーバーを起動
 | `npm run build` | 型チェック（`tsc`）後に `dist/` へビルド |
 | `npm run preview` | ビルド結果をローカルで確認 |
 | `npm run check` | 型チェックのみ実行（`tsc --noEmit`） |
+| `npm test` | 単体テストを実行（Vitest、`src/**/*.test.ts`） |
+| `npm run test:watch` | 単体テストを監視モードで実行 |
 | `npm run preview:worker` | ビルド後、Workers ランタイムでローカル確認 |
 | `npm run deploy` | ビルド後、Cloudflare Workers へデプロイ |
 
