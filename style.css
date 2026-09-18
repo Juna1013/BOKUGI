@@ -68,10 +68,15 @@ canvas {
     transition: color .35s ease;
 }
 
+/* SVG には text-shadow が効かないので、同じ紙色の光を drop-shadow で纏わせる */
 .title__repo svg {
     width: 18px;
     height: 18px;
     fill: currentColor;
+    filter:
+        drop-shadow(0 0 1.5px rgba(242, 237, 225, .95))
+        drop-shadow(0 0 3px rgba(242, 237, 225, .9))
+        drop-shadow(0 0 6px rgba(242, 237, 225, .7));
 }
 
 .title__repo:hover,
@@ -108,25 +113,9 @@ canvas {
     50% { opacity: 1; }
 }
 
-/* 墨の上でも文字が沈まないよう、紙色の光暈を背後に敷く。
-   画面の角の和紙に近い色を柔らかくぼかすので、白紙の上ではほぼ目立たない */
-.rinse::before,
-.share-card-button::before,
-.title__repo::before {
-    content: "";
-    position: absolute;
-    inset: -34px -30px;
-    z-index: -1;
-    border-radius: 50%;
-    background: radial-gradient(
-        ellipse closest-side,
-        rgba(234, 228, 213, .92) 0%,
-        rgba(234, 228, 213, .86) 55%,
-        rgba(234, 228, 213, 0) 100%
-    );
-    pointer-events: none;
-}
-
+/* 墨の上でも文字が沈まないよう、字画の縁にだけ紙色の光を纏わせる。
+   背後に円い下地を敷くと墨が濡れない結界のように見えるので、
+   題字「墨戯」と同じく文字の形なりに浮かび上がらせる */
 .title,
 .rinse,
 .share-card-button,
