@@ -31,8 +31,9 @@ export const EDGE_RATE_MAX: number = 0.03;
 /**
  * 流し書き。紙に薄く水を張り、濡れている墨を一定の流れで運びながら書く。
  * FLOW_VELOCITY はセル/フレーム。x が負なら左へ流れる。
- * 濡れたセルの速度を毎フレーム FLOW_RELAX の割合で流れへ寄せ、
- * 下流の縁 FLOW_SINK_CELLS セルで水と浮遊顔料を吸い取る（定着した墨は残す）。
+ * 濡れたセルの速度を毎フレーム FLOW_RELAX の割合で流れへ寄せる。
+ * 下流の縁で吸い取る処理は置かない。移流は縁の外から何も持ち込まないので墨は
+ * 縁から自然に抜けていくし、縁の数セルだけ水や墨を減らすと、そこが白い筋に見える。
  */
 export const FLOW_VELOCITY: readonly [number, number] = [-0.8, 0];
 export const FLOW_RELAX: number = 0.12;
@@ -50,9 +51,6 @@ export const FLOW_DEPOSIT_SCALE: number = 0.03;
  * 0.3 で移流の重み min(w·3.5, 1) が 1 になる。
  */
 export const FLOW_WATER_FLOOR: number = 0.3;
-export const FLOW_SINK_CELLS: number = 3;
-export const FLOW_SINK_WATER: number = 0.55;
-export const FLOW_SINK_PIGMENT: number = 0.5;
 /** 切にした後、張っていた水を引かせるフレーム数と、1 フレームあたりの水の残存率。 */
 export const FLOW_DRAIN_FRAMES: number = 90;
 export const FLOW_DRY_FACTOR: number = 0.95;

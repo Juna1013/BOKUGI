@@ -10,9 +10,6 @@ import {
   EDGE_RATE_MAX,
   FLOW_RELAX,
   FLOW_JITTER,
-  FLOW_SINK_CELLS,
-  FLOW_SINK_WATER,
-  FLOW_SINK_PIGMENT,
 } from '../config.ts';
 import {
   GPU_BUFFER_USAGE_COPY_DST,
@@ -28,7 +25,7 @@ import {
 } from '../renderer/WebGpuTypes.ts';
 import type { ColorIndex } from '../types/physics.ts';
 import type { FluidGrid } from './FluidGrid.ts';
-import { FluidSolver, flowSinkEdge } from './FluidSolver.ts';
+import { FluidSolver } from './FluidSolver.ts';
 
 const FLOATS_PER_CELL = 16;
 const FLOATS_PER_OPERATION = 12;
@@ -319,10 +316,8 @@ fn applyOperations(@builtin(global_invocation_id) global: vec3<u32>) {
       cell.pigments = vec4<f32>(0.0);
       cell.material.x = 0.0;
     } else if (kind == 5u) {
-      // 流し書き。CPU 版 flowStep と同じ: 水を張る／引かせ、濡れたセルの速度を流れへ寄せ、
-      // 水を張っている間は下流の縁で吸い取る。
-      let waterFloor = operation.b.x;
-      var water = max(cell.fluid.x, waterFloor) * operation.b.y;
+      // 流し書き。CPU 版 flowStep と同じ: 水を張る／引かせ、濡れたセルの速度を流れへ寄せる。
+      var water = max(cell.fluid.x, operation.b.x) * operation.b.y;
       if (water < 0.0008) { water = 0.0; }
       cell.fluid.x = water;
       if (water > ${CAP}) {
@@ -332,19 +327,6 @@ fn applyOperations(@builtin(global_invocation_id) global: vec3<u32>) {
         let jitter = (operationNoise(i, operationInfo.step + 7u) - 0.5) * ${FLOW_JITTER};
         cell.fluid.y += (flow.x - cell.fluid.y) * ${FLOW_RELAX} + perp.x * jitter;
         cell.fluid.z += (flow.y - cell.fluid.z) * ${FLOW_RELAX} + perp.y * jitter;
-      }
-      let edge = select(4u, u32(operation.a.w), waterFloor > 0.0);
-      let sink = min(${FLOW_SINK_CELLS}u, min(operationInfo.size.x, operationInfo.size.y));
-      let atSink =
-        (edge == 0u && global.x < sink) ||
-        (edge == 1u && global.x + sink >= operationInfo.size.x) ||
-        (edge == 2u && global.y < sink) ||
-        (edge == 3u && global.y + sink >= operationInfo.size.y);
-      if (atSink) {
-        cell.fluid.x *= ${FLOW_SINK_WATER};
-        cell.fluid.w *= ${FLOW_SINK_PIGMENT};
-        cell.pigments.x *= ${FLOW_SINK_PIGMENT};
-        cell.pigments.y *= ${FLOW_SINK_PIGMENT};
       }
     }
   }
@@ -494,7 +476,7 @@ export class WebGpuFluidSolver extends FluidSolver {
 
   public override flowStep(vx: number, vy: number, waterFloor: number, dryFactor: number): void {
     this.grid.includeViewport();
-    this.queueOperation([5, vx, vy, flowSinkEdge(vx, vy), waterFloor, dryFactor, 0, 0, 0, 0, 0, 0]);
+    this.queueOperation([5, vx, vy, 0, waterFloor, dryFactor, 0, 0, 0, 0, 0, 0]);
     // 張った水が引くまで描画を続けさせる（GPU 版の wet は残りステップ数で決まる）。
     this.activeSteps = Math.max(this.activeSteps, 600);
     this.wet = 1;

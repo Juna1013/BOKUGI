@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FluidGrid } from './FluidGrid.ts';
-import { depositionRate, fiberWeight, flowSinkEdge, FluidSolver, waterGradient } from './FluidSolver.ts';
+import { depositionRate, fiberWeight, FluidSolver, waterGradient } from './FluidSolver.ts';
 import {
   CAP,
   EDGE_RATE_MAX,
@@ -8,9 +8,6 @@ import {
   FLOW_RELAX,
   FLOW_WATER_FLOOR,
   FLOW_DRY_FACTOR,
-  FLOW_SINK_CELLS,
-  FLOW_SINK_WATER,
-  FLOW_SINK_PIGMENT,
 } from '../config.ts';
 import type { ColorIndex } from '../types/physics.ts';
 
@@ -379,15 +376,6 @@ describe('FluidSolver.resizePreservingState', () => {
   });
 });
 
-describe('flowSinkEdge', () => {
-  it('picks the edge the dominant velocity component points at', () => {
-    expect(flowSinkEdge(-0.5, 0)).toBe(0);
-    expect(flowSinkEdge(0.5, 0.1)).toBe(1);
-    expect(flowSinkEdge(0.1, -0.5)).toBe(2);
-    expect(flowSinkEdge(0, 0.5)).toBe(3);
-  });
-});
-
 describe('FluidSolver.flowStep', () => {
   it('pulls wet cells toward the flow velocity and leaves dry cells alone', () => {
     // 流れに直交する揺らぎを止め、寄せる分だけを見る
@@ -416,42 +404,7 @@ describe('FluidSolver.flowStep', () => {
     expect(grid.u[i]).toBeCloseTo(-0.5, 3);
   });
 
-  it('drains water and mobile pigment at the downstream edge but keeps fixed pigment', () => {
-    const solver = makeSolver();
-    const { grid } = solver;
-    const y = 4;
-    const atEdge = y * grid.gw;
-    const inside = y * grid.gw + FLOW_SINK_CELLS + 2;
-    for (const i of [atEdge, inside]) {
-      grid.w[i] = 1;
-      grid.p[0][i] = 1;
-      grid.d[0][i] = 1;
-    }
-
-    solver.flowStep(-0.5, 0, FLOW_WATER_FLOOR, 1);
-
-    expect(grid.w[atEdge]).toBeCloseTo(FLOW_SINK_WATER, 6);
-    expect(grid.p[0][atEdge]).toBeCloseTo(FLOW_SINK_PIGMENT, 6);
-    expect(grid.d[0][atEdge]).toBe(1);
-    expect(grid.w[inside]).toBe(1);
-    expect(grid.p[0][inside]).toBe(1);
-  });
-
-  it('drains the opposite edge when the flow reverses', () => {
-    const solver = makeSolver();
-    const { grid } = solver;
-    const left = 4 * grid.gw;
-    const right = 4 * grid.gw + grid.gw - 1;
-    grid.w[left] = 1;
-    grid.w[right] = 1;
-
-    solver.flowStep(0.5, 0, FLOW_WATER_FLOOR, 1);
-
-    expect(grid.w[left]).toBe(1);
-    expect(grid.w[right]).toBeCloseTo(FLOW_SINK_WATER, 6);
-  });
-
-  it('floods a dry sheet up to the water floor and drains the sink edge below it', () => {
+  it('floods a dry sheet evenly up to the water floor, edge columns included', () => {
     const solver = makeSolver();
     const { grid } = solver;
     const inside = 4 * grid.gw + 20;
@@ -462,7 +415,34 @@ describe('FluidSolver.flowStep', () => {
 
     expect(grid.w[inside]).toBeCloseTo(FLOW_WATER_FLOOR, 6);
     expect(grid.w[inside + 1]).toBe(1);
-    expect(grid.w[atEdge]).toBeCloseTo(FLOW_WATER_FLOOR * FLOW_SINK_WATER, 6);
+    expect(grid.w[atEdge]).toBeCloseTo(FLOW_WATER_FLOOR, 6);
+  });
+
+  it('lets a flowing stroke leave through the downstream edge without piling up', () => {
+    const solver = makeSolver(300, 90);
+    const { grid } = solver;
+    solver.depositScale = 0.03;
+    solver.deposit(200, 45, 1, 0.5, 4, 0);
+    const total = (): number => sum(grid.p[0]);
+    const column = (x: number): number => {
+      let s = 0;
+      for (let y = 0; y < grid.gh; y++) s += grid.p[0][y * grid.gw + x] ?? 0;
+      return s;
+    };
+    const before = total();
+    let widestColumnBefore = 0;
+    for (let x = 0; x < grid.gw; x++) widestColumnBefore = Math.max(widestColumnBefore, column(x));
+    let peakAtEdge = 0;
+    for (let frame = 0; frame < 300; frame++) {
+      solver.runSteps(2);
+      solver.advect();
+      solver.flowStep(-0.8, 0, FLOW_WATER_FLOOR, 1);
+      peakAtEdge = Math.max(peakAtEdge, column(0));
+    }
+    // 通り過ぎる間に縁の列が持つ墨は、筆の一列分を超えない（縁に溜まらない）
+    expect(peakAtEdge).toBeLessThan(widestColumnBefore * 1.2);
+    expect(total()).toBeLessThan(before * 0.01);
+    expect(column(0)).toBeLessThan(before * 0.001);
   });
 
   it('dries the sheet and stops the current when draining', () => {
@@ -478,8 +458,6 @@ describe('FluidSolver.flowStep', () => {
 
     for (let frame = 0; frame < 200; frame++) solver.flowStep(0, 0, 0, FLOW_DRY_FACTOR);
     expect(grid.w[i]).toBe(0);
-    // 乾いたセルは吸い取りの対象外
-    expect(grid.w[4 * grid.gw]).toBe(0);
   });
 
   it('deposits far less pigment while depositScale is lowered', () => {
