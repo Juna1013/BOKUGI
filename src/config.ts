@@ -45,7 +45,20 @@ export const ABS: AbsorptionTable = [
 /** 紙の粒状感。顔料は乾くにつれ紙の谷に沈んで粒立つので、光学密度をこの割合で揺らす。 */
 export const GRAIN_AMPLITUDE_WET: number = 0.08;
 export const GRAIN_AMPLITUDE_DRY: number = 0.2;
+/**
+ * 粒の揺らぎが飽和し始める光学密度。揺らぎは密度への掛け算なので、そのままだと
+ * 上塗りで密度が 3〜4 になった所で対数空間の振れ幅が 10 倍になり、画素大の斑になる。
+ * 振れ幅を 1 / (1 + 密度 / この値) 倍して、濃い墨ほど紙の目が沈むようにする。
+ */
+export const GRAIN_KNEE_DENSITY: number = 1.0;
 /** 繊維に沿った毛羽。密度の読み出し位置を繊維方向へ最大このセル数ずらし、滲みの縁を繊維状にする。 */
 export const FIBER_WARP_CELLS: number = 0.75;
+/**
+ * 毛羽ずらしが弱まり始める密度勾配（1 セルあたりの光学密度差）。
+ * ずらしで生じる濃淡の振れは |∇密度| × ずらし量 なので、薄い滲みの縁（勾配 0.1 前後）では
+ * 繊維状の毛羽に見え、上塗りの縁（勾配 1 前後）では画素大のギザギザになる。
+ * ずらし量を 1 / (1 + |∇密度| / この値) 倍して、急な縁ほど毛羽を寝かせる。
+ */
+export const FIBER_WARP_GRADIENT_KNEE: number = 0.3;
 /** 濡れた墨の艶。水面の傾きから求めた鏡面反射で、紙色へ寄せる割合の上限。 */
 export const GLOSS_STRENGTH: number = 0.32;

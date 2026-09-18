@@ -4,7 +4,9 @@ import {
   FIBER_ANISO,
   GRAIN_AMPLITUDE_WET,
   GRAIN_AMPLITUDE_DRY,
+  GRAIN_KNEE_DENSITY,
   FIBER_WARP_CELLS,
+  FIBER_WARP_GRADIENT_KNEE,
   GLOSS_STRENGTH,
 } from '../config.ts';
 import { WebGpuFluidSolver, TILE_SIZE } from '../physics/WebGpuFluidSolver.ts';
@@ -71,6 +73,13 @@ struct FluidCell {
 @group(0) @binding(2) var densityOut: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(2) var paperOut: texture_storage_2d<rgba16float, write>;
 
+// 密度への掛け算で入る揺らぎの減衰率。薄い所は 1、密度が knee を越えるにつれ
+// 1 / (1 + d / knee) に落ち、対数空間の振れ幅が密度に比例して膨らむのを止める。
+fn grainDamping(density: vec3<f32>) -> f32 {
+  let mean = max(dot(density, vec3<f32>(1.0 / 3.0)), 0.0);
+  return 1.0 / (1.0 + mean / ${GRAIN_KNEE_DENSITY});
+}
+
 // セルの光学密度（Lambert-Beer の指数部）。紙目の係数もここで掛けておく。
 @compute @workgroup_size(${TILE_SIZE}, ${TILE_SIZE})
 fn shade(@builtin(global_invocation_id) id: vec3<u32>) {
@@ -86,7 +95,9 @@ fn shade(@builtin(global_invocation_id) id: vec3<u32>) {
     pigment.x * ${ABS[0][1]} + pigment.y * ${ABS[1][1]} + pigment.z * ${ABS[2][1]},
     pigment.x * ${ABS[0][2]} + pigment.y * ${ABS[1][2]} + pigment.z * ${ABS[2][2]}
   );
-  let density = (absorption * ${PIGMENT_DENSITY} + vec3<f32>(cell.fluid.x * 0.05)) * cell.paper.x;
+  let base = absorption * ${PIGMENT_DENSITY} + vec3<f32>(cell.fluid.x * 0.05);
+  // 紙目の係数も密度への掛け算なので、濃い所では振れ幅を抑える（fragment の粒と同じ扱い）。
+  let density = base * (1.0 + (cell.paper.x - 1.0) * grainDamping(base));
   textureStore(densityOut, vec2<i32>(id.xy), vec4<f32>(density, cell.fluid.x));
 }
 
@@ -227,9 +238,23 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
   let height = mix(mix(fine, coarse, 0.55), streak, 0.15 + 0.25 * alignment);
 
   var position = input.uv * sizeF - vec2<f32>(0.5);
+  // 軸方向の隣（半セル先）を先に読む。rgb の差は密度勾配（毛羽の抑え）、a の差は水面の傾き（艶）に使う。
+  let texel = vec2<f32>(0.5) / sizeF;
+  var slope = vec2<f32>(0.0);
   if (full) {
+    let left = textureSampleLevel(densityTex, linearSampler, input.uv - vec2<f32>(texel.x, 0.0), 0.0);
+    let right = textureSampleLevel(densityTex, linearSampler, input.uv + vec2<f32>(texel.x, 0.0), 0.0);
+    let up = textureSampleLevel(densityTex, linearSampler, input.uv - vec2<f32>(0.0, texel.y), 0.0);
+    let down = textureSampleLevel(densityTex, linearSampler, input.uv + vec2<f32>(0.0, texel.y), 0.0);
+    slope = vec2<f32>(right.a - left.a, down.a - up.a);
+    let gradient = length(vec2<f32>(
+      dot(right.rgb - left.rgb, vec3<f32>(1.0 / 3.0)),
+      dot(down.rgb - up.rgb, vec3<f32>(1.0 / 3.0))
+    ));
     // 繊維に沿って読み出し位置をずらす。滲みの縁が繊維の向きに毛羽立つ。
-    position += fiberDir * (streak - 0.5) * ${FIBER_WARP_CELLS} * (0.4 + 0.6 * alignment);
+    // 上塗りの縁のように密度が急に変わる所では、ずらしが画素大のギザギザになるので寝かせる。
+    let warpDamping = 1.0 / (1.0 + gradient / ${FIBER_WARP_GRADIENT_KNEE});
+    position += fiberDir * (streak - 0.5) * ${FIBER_WARP_CELLS} * (0.4 + 0.6 * alignment) * warpDamping;
   }
   var sampled: vec4<f32>;
   if (full) {
@@ -242,17 +267,13 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
   let dry = 1.0 - min(water * 6.0, 1.0);
   // 紙の谷に沈んだ顔料ほど光路が長い。乾くほど粒が立つ。
   let grainAmplitude = mix(${GRAIN_AMPLITUDE_WET}, ${GRAIN_AMPLITUDE_DRY}, dry);
-  let density = max(sampled.rgb, vec3<f32>(0.0)) * (1.0 + (height - 0.5) * 2.0 * grainAmplitude);
+  let base = max(sampled.rgb, vec3<f32>(0.0));
+  // 濃い墨ほど紙の目が沈む。揺らぎを密度で飽和させ、上塗りが画素大の斑にならないようにする。
+  let density = base * (1.0 + (height - 0.5) * 2.0 * grainAmplitude * grainDamping(base));
   var color = exp(-density);
 
   if (full) {
     // 濡れた墨の艶。水面の傾き（格子）と紙の微細法線（画素）から鏡面反射を求める。
-    let texel = vec2<f32>(0.5) / sizeF;
-    let left = textureSampleLevel(densityTex, linearSampler, input.uv - vec2<f32>(texel.x, 0.0), 0.0).a;
-    let right = textureSampleLevel(densityTex, linearSampler, input.uv + vec2<f32>(texel.x, 0.0), 0.0).a;
-    let up = textureSampleLevel(densityTex, linearSampler, input.uv - vec2<f32>(0.0, texel.y), 0.0).a;
-    let down = textureSampleLevel(densityTex, linearSampler, input.uv + vec2<f32>(0.0, texel.y), 0.0).a;
-    let slope = vec2<f32>(right - left, down - up);
     let heightX = valueNoise((css + vec2<f32>(1.0, 0.0)) / 2.3) - fine;
     let heightY = valueNoise((css + vec2<f32>(0.0, 1.0)) / 2.3) - fine;
     let normal = normalize(vec3<f32>(-slope * 6.0 - vec2<f32>(heightX, heightY) * 0.6, 1.0));
