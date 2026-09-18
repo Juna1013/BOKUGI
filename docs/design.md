@@ -31,6 +31,7 @@
 | [`src/interaction/InputController.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/interaction/InputController.ts) | Pointer Capture・ポインター入力・ストローク運動量付与制御クラス |
 | [`src/interaction/RinseController.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/interaction/RinseController.ts) | 水洗い機能の前線波・顔料再溶解アニメーション制御クラス |
 | [`src/interaction/RinseEffects.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/interaction/RinseEffects.ts) | 洗い流すボタンのタンク水位・波・溢れ・前線の帯（`motion` による DOM 演出） |
+| [`src/interaction/FlowController.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/interaction/FlowController.ts) | 流し書きの切り替え。入の間は紙に水を張って墨を一定の流れで運び、切にすると水を引かせる |
 | [`src/main.ts`](file:///Users/juna1013/bin/practice/BOKUGI/src/main.ts) | アプリケーションのエントリポイント、全モジュールの初期化とメインループ (rAF) |
 | [`tsconfig.json`](file:///Users/juna1013/bin/practice/BOKUGI/tsconfig.json) | TypeScript 設定 (`strict: true`, `noImplicitAny: true`, `strictNullChecks: true`) |
 | [`docs/design.md`](file:///Users/juna1013/bin/practice/BOKUGI/docs/design.md) | 本設計ドキュメント |

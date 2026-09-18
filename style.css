@@ -118,6 +118,7 @@ canvas {
    題字「墨戯」と同じく文字の形なりに浮かび上がらせる */
 .title,
 .rinse,
+.flow-button,
 .share-card-button,
 .rinse-tip {
     font-family: var(--font-brush);
@@ -341,12 +342,23 @@ canvas {
     transform: translateX(0);
 }
 
-/* 作品を残す */
-.share-card-button {
+/* 右下: 流し書きの切り替えと、作品を残す。上から順に縦書きで並べる */
+.works-area {
     position: fixed;
     right: max(22px, env(safe-area-inset-right));
     bottom: max(22px, env(safe-area-inset-bottom));
     z-index: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 22px;
+    /* 余白部分で紙への落墨を妨げない */
+    pointer-events: none;
+}
+
+.flow-button,
+.share-card-button {
+    pointer-events: auto;
     writing-mode: vertical-rl;
     font-family: var(--font-brush);
     font-size: 15px;
@@ -359,16 +371,44 @@ canvas {
     color: rgba(27, 27, 32, .4);
     border-left: 1px solid rgba(27, 27, 32, .4);
     cursor: pointer;
-    transition: color .4s;
+    transition: color .4s, border-color .4s;
 }
 
+.flow-button:hover, .flow-button:focus-visible,
 .share-card-button:hover, .share-card-button:focus-visible {
     color: rgba(27, 27, 32, .85);
 }
 
+.flow-button:focus-visible,
 .share-card-button:focus-visible {
     outline: 1px solid rgba(27, 27, 32, .5);
     outline-offset: 3px;
+}
+
+/* 流し書き。入の間は、水と同じ藍で流れていることを示す */
+.flow-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.flow-button[hidden] {
+    display: none;
+}
+
+.flow-button__state {
+    font-size: 10px;
+    letter-spacing: .35em;
+    color: inherit;
+}
+
+.flow-button.is-on {
+    color: rgba(31, 63, 116, .8);
+    border-left-color: rgba(31, 63, 116, .6);
+}
+
+.flow-button.is-on:hover, .flow-button.is-on:focus-visible {
+    color: rgba(31, 63, 116, 1);
 }
 
 .share-dialog {
@@ -630,6 +670,12 @@ canvas {
 
 /* 横向きの端末では縦に並べると収まらないので、作品を左、項目を右に置く */
 @media (orientation: landscape) and (max-height: 500px) {
+    /* 右下の二つのボタンも、縦に積むと題字に届くので横に並べる */
+    .works-area {
+        flex-direction: row;
+        align-items: flex-end;
+    }
+
     .share-dialog {
         width: min(720px, 94vw);
         max-width: min(720px, 94vw);

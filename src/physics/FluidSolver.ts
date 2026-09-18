@@ -8,6 +8,11 @@ import {
   EDGE_DEPOSIT,
   EDGE_WATER_FLOOR,
   EDGE_RATE_MAX,
+  FLOW_RELAX,
+  FLOW_JITTER,
+  FLOW_SINK_CELLS,
+  FLOW_SINK_WATER,
+  FLOW_SINK_PIGMENT,
 } from '../config.ts';
 import type { FluidGrid } from './FluidGrid.ts';
 import type { ColorIndex } from '../types/physics.ts';
@@ -64,9 +69,20 @@ export function depositionRate(water: number, gradient: number): number {
   return Math.min(DEPOSIT_WET + DEPOSIT_DRY * dry * dry + EDGE_DEPOSIT * edge, EDGE_RATE_MAX);
 }
 
+/** 流れが向かう縁。0: 左, 1: 右, 2: 上, 3: 下。GPU 版の applyOperations と同じ番号。 */
+export type FlowSinkEdge = 0 | 1 | 2 | 3;
+
+/** 流れの速度から、水と墨を吸い取る下流の縁を決める。大きい成分の向きを取る。 */
+export function flowSinkEdge(vx: number, vy: number): FlowSinkEdge {
+  if (Math.abs(vx) >= Math.abs(vy)) return vx < 0 ? 0 : 1;
+  return vy < 0 ? 2 : 3;
+}
+
 export class FluidSolver {
   public grid: FluidGrid;
   public wet: number = 0;
+  /** 顔料の定着率の倍率。流し書きの間は FlowController が下げ、墨を浮かせたまま運ぶ。 */
+  public depositScale: number = 1;
 
   constructor(grid: FluidGrid) {
     this.grid = grid;
@@ -186,7 +202,7 @@ export class FluidSolver {
         p[1][i] = 0;
         p[2][i] = 0;
       } else {
-        const rate = depositionRate(wi, waterGradient(w, i, gw, gh));
+        const rate = depositionRate(wi, waterGradient(w, i, gw, gh)) * this.depositScale;
         for (let c = 0; c < 3; c++) {
           const dc = d[c as ColorIndex];
           const pc = p[c as ColorIndex];
@@ -345,6 +361,49 @@ export class FluidSolver {
       }
     }
     this.wet = 1;
+  }
+
+  /**
+   * 流し書きの 1 フレーム。
+   * - 水を waterFloor まで張り（入の間）、dryFactor 倍に引かせる（切にした後）。
+   * - 濡れているセルの速度を (vx, vy) へ寄せる。
+   * - 水を張っている間は、下流の縁で水と浮遊顔料を吸い取る。
+   * 定着した墨には触れないので、乾いた作品はその場に残り、浮いている墨だけが流れる。
+   */
+  public flowStep(vx: number, vy: number, waterFloor: number, dryFactor: number): void {
+    this.grid.includeViewport();
+    const { gw, gh, N, w, u, v, p } = this.grid;
+    const speed = Math.hypot(vx, vy);
+    const perpX = speed > 0 ? -vy / speed : 0;
+    const perpY = speed > 0 ? vx / speed : 0;
+    for (let i = 0; i < N; i++) {
+      let wi = Math.max(w[i] ?? 0, waterFloor) * dryFactor;
+      if (wi < 0.0008) wi = 0;
+      w[i] = wi;
+      if (wi <= CAP) continue;
+      const jitter = (Math.random() - 0.5) * FLOW_JITTER;
+      u[i]! += (vx - (u[i] ?? 0)) * FLOW_RELAX + perpX * jitter;
+      v[i]! += (vy - (v[i] ?? 0)) * FLOW_RELAX + perpY * jitter;
+    }
+    if (waterFloor <= 0) return;
+
+    const edge = flowSinkEdge(vx, vy);
+    const sink = Math.min(FLOW_SINK_CELLS, gw, gh);
+    const drain = (i: number): void => {
+      w[i]! *= FLOW_SINK_WATER;
+      for (let c = 0; c < 3; c++) p[c as ColorIndex][i]! *= FLOW_SINK_PIGMENT;
+    };
+    if (edge === 0 || edge === 1) {
+      const x0 = edge === 0 ? 0 : gw - sink;
+      for (let y = 0; y < gh; y++) {
+        for (let x = x0; x < x0 + sink; x++) drain(y * gw + x);
+      }
+    } else {
+      const y0 = edge === 2 ? 0 : gh - sink;
+      for (let y = y0; y < y0 + sink; y++) {
+        for (let x = 0; x < gw; x++) drain(y * gw + x);
+      }
+    }
   }
 
   // 5. 渦運動の付与

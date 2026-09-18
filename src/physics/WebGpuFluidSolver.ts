@@ -8,6 +8,11 @@ import {
   EDGE_DEPOSIT,
   EDGE_WATER_FLOOR,
   EDGE_RATE_MAX,
+  FLOW_RELAX,
+  FLOW_JITTER,
+  FLOW_SINK_CELLS,
+  FLOW_SINK_WATER,
+  FLOW_SINK_PIGMENT,
 } from '../config.ts';
 import {
   GPU_BUFFER_USAGE_COPY_DST,
@@ -23,7 +28,7 @@ import {
 } from '../renderer/WebGpuTypes.ts';
 import type { ColorIndex } from '../types/physics.ts';
 import type { FluidGrid } from './FluidGrid.ts';
-import { FluidSolver } from './FluidSolver.ts';
+import { FluidSolver, flowSinkEdge } from './FluidSolver.ts';
 
 const FLOATS_PER_CELL = 16;
 const FLOATS_PER_OPERATION = 12;
@@ -51,6 +56,7 @@ struct SimInfo {
   size: vec2<u32>,
   operationCount: u32,
   step: u32,
+  depositScale: f32,
 };
 
 struct Operation {
@@ -172,7 +178,7 @@ fn diffuseAndSettle(
   var mobile = max(transported.yzw, vec3<f32>(0.0));
   // 見えない量になった浮遊顔料は 0 にする（CPU 版 PIGMENT_EPSILON と同じ）。
   if (mobile.x + mobile.y + mobile.z < 0.00001) { mobile = vec3<f32>(0.0); }
-  let deposited = mobile * depositionRate(water, gradient);
+  let deposited = mobile * depositionRate(water, gradient) * info.depositScale;
 
   result.fluid = vec4<f32>(water, current.fluid.y * ${VDAMP}, current.fluid.z * ${VDAMP}, mobile.x - deposited.x);
   result.pigments = vec4<f32>(
@@ -312,6 +318,34 @@ fn applyOperations(@builtin(global_invocation_id) global: vec3<u32>) {
       cell.fluid = vec4<f32>(0.0);
       cell.pigments = vec4<f32>(0.0);
       cell.material.x = 0.0;
+    } else if (kind == 5u) {
+      // 流し書き。CPU 版 flowStep と同じ: 水を張る／引かせ、濡れたセルの速度を流れへ寄せ、
+      // 水を張っている間は下流の縁で吸い取る。
+      let waterFloor = operation.b.x;
+      var water = max(cell.fluid.x, waterFloor) * operation.b.y;
+      if (water < 0.0008) { water = 0.0; }
+      cell.fluid.x = water;
+      if (water > ${CAP}) {
+        let flow = operation.a.yz;
+        let speed = length(flow);
+        let perp = select(vec2<f32>(0.0), vec2<f32>(-flow.y, flow.x) / max(speed, 0.0001), speed > 0.0);
+        let jitter = (operationNoise(i, operationInfo.step + 7u) - 0.5) * ${FLOW_JITTER};
+        cell.fluid.y += (flow.x - cell.fluid.y) * ${FLOW_RELAX} + perp.x * jitter;
+        cell.fluid.z += (flow.y - cell.fluid.z) * ${FLOW_RELAX} + perp.y * jitter;
+      }
+      let edge = select(4u, u32(operation.a.w), waterFloor > 0.0);
+      let sink = min(${FLOW_SINK_CELLS}u, min(operationInfo.size.x, operationInfo.size.y));
+      let atSink =
+        (edge == 0u && global.x < sink) ||
+        (edge == 1u && global.x + sink >= operationInfo.size.x) ||
+        (edge == 2u && global.y < sink) ||
+        (edge == 3u && global.y + sink >= operationInfo.size.y);
+      if (atSink) {
+        cell.fluid.x *= ${FLOW_SINK_WATER};
+        cell.fluid.w *= ${FLOW_SINK_PIGMENT};
+        cell.pigments.x *= ${FLOW_SINK_PIGMENT};
+        cell.pigments.y *= ${FLOW_SINK_PIGMENT};
+      }
     }
   }
   operationState[i] = cell;
@@ -330,7 +364,9 @@ export class WebGpuFluidSolver extends FluidSolver {
   private advectBindGroups: [GpuBindGroup, GpuBindGroup] | null = null;
   private operationBindGroups: [GpuBindGroup, GpuBindGroup] | null = null;
   private currentIndex: 0 | 1 = 0;
-  private readonly info = new Uint32Array(4);
+  // size(2), operationCount, step の u32 と depositScale の f32。uniform の構造体に合わせて 32 バイト取る。
+  private readonly info = new Uint32Array(8);
+  private readonly infoFloats = new Float32Array(this.info.buffer);
   private readonly pendingOperations: number[] = [];
   private stepNumber = 0;
   private activeSteps = 0;
@@ -453,6 +489,14 @@ export class WebGpuFluidSolver extends FluidSolver {
     this.grid.includeViewport();
     this.queueOperation([3, t, sweepFrames, totalFrames, 0, 0, 0, 0, 0, 0, 0, 0]);
     this.activeSteps = Math.max(this.activeSteps, 24_000);
+    this.wet = 1;
+  }
+
+  public override flowStep(vx: number, vy: number, waterFloor: number, dryFactor: number): void {
+    this.grid.includeViewport();
+    this.queueOperation([5, vx, vy, flowSinkEdge(vx, vy), waterFloor, dryFactor, 0, 0, 0, 0, 0, 0]);
+    // 張った水が引くまで描画を続けさせる（GPU 版の wet は残りステップ数で決まる）。
+    this.activeSteps = Math.max(this.activeSteps, 600);
     this.wet = 1;
   }
 
@@ -615,6 +659,7 @@ export class WebGpuFluidSolver extends FluidSolver {
     this.info[1] = this.grid.gh;
     this.info[2] = operationCount;
     this.info[3] = this.stepNumber;
+    this.infoFloats[4] = this.depositScale;
     this.device.queue.writeBuffer(this.infoBuffer, 0, this.info);
   }
 

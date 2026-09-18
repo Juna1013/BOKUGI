@@ -53,7 +53,14 @@
         <p class="rinse-tip" id="rinseTip" role="status" aria-live="polite"></p>
     </div>
 
-    <button class="share-card-button" id="shareCardButton">作品を残す</button>
+    <div class="works-area">
+        <button type="button" class="flow-button" id="flowButton" aria-pressed="false"
+            title="濡れた墨が流れながら書けます">
+            <span class="flow-button__label">流し書き</span>
+            <small class="flow-button__state" aria-hidden="true">切</small>
+        </button>
+        <button class="share-card-button" id="shareCardButton">作品を残す</button>
+    </div>
 
     <dialog class="share-dialog" id="shareDialog" aria-labelledby="shareDialogTitle">
         <div class="share-dialog__content">
