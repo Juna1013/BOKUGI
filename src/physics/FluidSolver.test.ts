@@ -495,4 +495,65 @@ describe('FluidSolver.flowStep', () => {
     }
     expect(centroid()).toBeLessThan(before - 3);
   });
+
+  it('carries a stroke written at the upstream edge away instead of flooding the sheet', () => {
+    // 流れは左向きなので、右端は上流の縁。そこに書いた墨の汲み出し元は紙の外側になる。
+    // 縁のセルで切り詰めて自分自身を汲むと、墨が毎フレーム湧いて紙全体を覆ってしまう。
+    const solver = makeSolver(150, 90);
+    const { grid } = solver;
+    for (let k = 0; k < 8; k++) solver.deposit(grid.W - 4, 20 + k, 1.6, 0.9, 4, 0);
+    const before = totalPigment(grid);
+
+    for (let frame = 0; frame < 120; frame++) {
+      solver.runSteps(2);
+      solver.advect();
+      solver.flowStep(-0.8, 0, FLOW_WATER_FLOOR, 1);
+    }
+
+    // 下流の縁で吸い取られる分だけ減り、増えることはない
+    expect(totalPigment(grid)).toBeLessThanOrEqual(before);
+  });
+});
+
+describe('FluidSolver.advect at the paper edge', () => {
+  /** 一様な流れを与え続けて、移流だけを繰り返す。 */
+  const driftSteps = (solver: FluidSolver, vx: number, vy: number, frames: number): void => {
+    const { grid } = solver;
+    for (let frame = 0; frame < frames; frame++) {
+      grid.w.fill(FLOW_WATER_FLOOR);
+      grid.u.fill(vx);
+      grid.v.fill(vy);
+      grid.ambU.fill(0);
+      grid.ambV.fill(0);
+      solver.advect();
+    }
+  };
+
+  it('does not create pigment when the source position leaves the paper', () => {
+    for (const [vx, vy] of [[-0.8, 0], [0.8, 0], [0, -0.8], [0, 0.8]] as const) {
+      const solver = makeSolver(60, 45);
+      const { grid } = solver;
+      // 流れの上流側の縁に墨を置く
+      const x = vx < 0 ? grid.gw - 1 : vx > 0 ? 0 : grid.gw >> 1;
+      const y = vy < 0 ? grid.gh - 1 : vy > 0 ? 0 : grid.gh >> 1;
+      grid.p[0][y * grid.gw + x] = 1;
+
+      driftSteps(solver, vx, vy, 5);
+
+      expect(totalPigment(grid)).toBeLessThanOrEqual(1.000001);
+    }
+  });
+
+  it('empties the upstream edge cell instead of holding it at full strength', () => {
+    const solver = makeSolver(60, 45);
+    const { grid } = solver;
+    const y = 4;
+    const edge = y * grid.gw + grid.gw - 1;
+    grid.p[0][edge] = 1;
+
+    driftSteps(solver, -0.8, 0, 3);
+
+    // 縁のセルは汲み出し口ではないので、墨は残らず下流へ渡る
+    expect(grid.p[0][edge]).toBeLessThan(0.05);
+  });
 });
