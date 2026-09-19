@@ -238,25 +238,36 @@ export class FluidSolver {
         }
         if (vx * vx + vy * vy < 1e-6) continue;
 
-        const sx = Math.max(0, Math.min(gw - 1.001, x - vx));
-        const sy2 = Math.max(0, Math.min(gh - 1.001, y - vy));
-        const x0 = sx | 0, y0 = sy2 | 0;
+        // 紙の外へ遡る分は、縁のセルを引き写さずに白紙として扱う。
+        // 端で切り詰めると、上流の縁のセルが自分自身を汲み続ける汲み出し口になり、
+        // 流し書きのように一定の流れを与えている間、墨がいくらでも湧いて紙を覆う。
+        const sx = Math.max(-1, Math.min(gw, x - vx));
+        const sy2 = Math.max(-1, Math.min(gh, y - vy));
+        const x0 = Math.floor(sx), y0 = Math.floor(sy2);
         const fx = sx - x0, fy = sy2 - y0;
-        const j00 = y0 * gw + x0, j10 = j00 + 1, j01 = j00 + gw, j11 = j01 + 1;
+        const x1 = x0 + 1, y1 = y0 + 1;
+        // 紙の内側にある角だけを混ぜる。外側の角は白紙（水も墨も 0）として重みだけ残すので、
+        // 縁から遡った分は薄まって出ていき、外から墨が戻ってくることはない。
+        const inX0 = x0 >= 0 && x0 < gw, inX1 = x1 >= 0 && x1 < gw;
+        const inY0 = y0 >= 0 && y0 < gh, inY1 = y1 >= 0 && y1 < gh;
+        const j00 = inX0 && inY0 ? y0 * gw + x0 : -1;
+        const j10 = inX1 && inY0 ? y0 * gw + x1 : -1;
+        const j01 = inX0 && inY1 ? y1 * gw + x0 : -1;
+        const j11 = inX1 && inY1 ? y1 * gw + x1 : -1;
         const a00 = (1 - fx) * (1 - fy), a10 = fx * (1 - fy), a01 = (1 - fx) * fy, a11 = fx * fy;
 
-        const w00 = w[j00] ?? 0, w10 = w[j10] ?? 0, w01 = w[j01] ?? 0, w11 = w[j11] ?? 0;
-        const bl_w = w00 * a00 + w10 * a10 + w01 * a01 + w11 * a11;
-        w2[i] = wi + (bl_w - wi) * g;
+        const sample = (field: Float32Array): number =>
+          (j00 >= 0 ? (field[j00] ?? 0) * a00 : 0) +
+          (j10 >= 0 ? (field[j10] ?? 0) * a10 : 0) +
+          (j01 >= 0 ? (field[j01] ?? 0) * a01 : 0) +
+          (j11 >= 0 ? (field[j11] ?? 0) * a11 : 0);
+
+        w2[i] = wi + (sample(w) - wi) * g;
 
         for (let c = 0; c < 3; c++) {
           const pc = p[c as ColorIndex];
-          const p2c = p2[c as ColorIndex];
-
-          const p00 = pc[j00] ?? 0, p10 = pc[j10] ?? 0, p01 = pc[j01] ?? 0, p11 = pc[j11] ?? 0;
-          const bl_p = p00 * a00 + p10 * a10 + p01 * a01 + p11 * a11;
           const pci = pc[i] ?? 0;
-          p2c[i] = pci + (bl_p - pci) * g;
+          p2[c as ColorIndex][i] = pci + (sample(pc) - pci) * g;
         }
       }
     }

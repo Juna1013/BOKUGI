@@ -188,17 +188,51 @@ fn diffuseAndSettle(
   stateOut[i] = result;
 }
 
+// 移流の汲み出し元。紙の外にはみ出した角は白紙（水も墨も 0）として重みだけ残す。
+// CPU 版 advect と同じ扱いで、縁のセルが自分自身を汲み続ける汲み出し口にならないようにする。
+fn sampleWeight(cell: vec2<i32>, weight: f32) -> f32 {
+  let size = vec2<i32>(info.size);
+  let inside = all(cell >= vec2<i32>(0)) && all(cell < size);
+  return select(0.0, weight, inside);
+}
+
+fn sampleIndex(cell: vec2<i32>) -> u32 {
+  let size = vec2<i32>(info.size);
+  let clamped = clamp(cell, vec2<i32>(0), size - vec2<i32>(1));
+  return u32(clamped.y) * info.size.x + u32(clamped.x);
+}
+
+/** 双線形の汲み出し。fluid（水・速度・墨0）と pigments（墨1・墨2）だけを混ぜる。 */
 fn sampleState(position: vec2<f32>) -> FluidCell {
-  let base = vec2<u32>(floor(position));
-  let next = min(base + vec2<u32>(1u), info.size - vec2<u32>(1u));
-  let fraction = fract(position);
-  let topLeft = stateIn[base.y * info.size.x + base.x];
-  let topRight = stateIn[base.y * info.size.x + next.x];
-  let bottomLeft = stateIn[next.y * info.size.x + base.x];
-  let bottomRight = stateIn[next.y * info.size.x + next.x];
-  var sampled = topLeft;
-  sampled.fluid = mix(mix(topLeft.fluid, topRight.fluid, fraction.x), mix(bottomLeft.fluid, bottomRight.fluid, fraction.x), fraction.y);
-  sampled.pigments = mix(mix(topLeft.pigments, topRight.pigments, fraction.x), mix(bottomLeft.pigments, bottomRight.pigments, fraction.x), fraction.y);
+  let base = vec2<i32>(floor(position));
+  let fraction = position - floor(position);
+  let corners = array<vec2<i32>, 4>(
+    base,
+    base + vec2<i32>(1, 0),
+    base + vec2<i32>(0, 1),
+    base + vec2<i32>(1, 1)
+  );
+  let weights = vec4<f32>(
+    (1.0 - fraction.x) * (1.0 - fraction.y),
+    fraction.x * (1.0 - fraction.y),
+    (1.0 - fraction.x) * fraction.y,
+    fraction.x * fraction.y
+  );
+
+  var fluid = vec4<f32>(0.0);
+  var pigments = vec4<f32>(0.0);
+  for (var c = 0u; c < 4u; c++) {
+    let corner = corners[c];
+    let weight = sampleWeight(corner, weights[c]);
+    if (weight <= 0.0) { continue; }
+    let cell = stateIn[sampleIndex(corner)];
+    fluid += cell.fluid * weight;
+    pigments += cell.pigments * weight;
+  }
+
+  var sampled = stateIn[sampleIndex(base)];
+  sampled.fluid = fluid;
+  sampled.pigments = pigments;
   return sampled;
 }
 
@@ -214,8 +248,12 @@ fn advect(@builtin(global_invocation_id) global: vec3<u32>) {
     let velocity = (current.fluid.yz + current.material.zw) * wetness;
     if (dot(velocity, velocity) >= 0.000001) {
       let position = vec2<f32>(global.xy);
-      let upper = vec2<f32>(info.size) - vec2<f32>(1.001);
-      let sourcePosition = clamp(position - velocity, vec2<f32>(0.0), upper);
+      // 紙の外へ 1 セル分まで遡らせる。そこは白紙なので、縁の墨は薄まって出ていく。
+      let sourcePosition = clamp(
+        position - velocity,
+        vec2<f32>(-1.0),
+        vec2<f32>(info.size)
+      );
       let sampled = sampleState(sourcePosition);
       result.fluid.x = mix(current.fluid.x, sampled.fluid.x, wetness);
       result.fluid.w = mix(current.fluid.w, sampled.fluid.w, wetness);
